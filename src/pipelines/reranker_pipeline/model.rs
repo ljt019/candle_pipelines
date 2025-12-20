@@ -1,15 +1,15 @@
-use tokenizers::Tokenizer;
-use candle_core::Device;
 use super::pipeline::RerankResult;
+use candle_core::Device;
+use tokenizers::Tokenizer;
 
 /// Trait for reranking models.
 pub trait RerankModel {
     type Options: std::fmt::Debug + Clone;
-    
+
     fn new(options: Self::Options, device: Device) -> anyhow::Result<Self>
     where
         Self: Sized;
-    
+
     fn rerank(
         &self,
         tokenizer: &Tokenizer,
@@ -30,8 +30,8 @@ pub trait RerankModel {
         }
         Ok(results)
     }
-    
+
     fn get_tokenizer(options: Self::Options) -> anyhow::Result<Tokenizer>;
-    
+
     fn device(&self) -> &Device;
 }

@@ -65,10 +65,7 @@ pub enum Event {
         content: String,
     },
     /// Plain text outside any registered tag
-    Output {
-        part: TagParts,
-        content: String,
-    },
+    Output { part: TagParts, content: String },
 }
 
 impl Event {
@@ -149,13 +146,11 @@ impl Event {
 }
 
 /// Builder for creating an XmlParser with specific tags to watch for
-#[derive(Debug)]
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct XmlParserBuilder {
     tags: Vec<String>,
     next_id: usize,
 }
-
 
 impl XmlParserBuilder {
     /// Create a new XmlParserBuilder
@@ -190,8 +185,7 @@ impl XmlParserBuilder {
 }
 
 /// Parser state for tracking XML tag parsing
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 struct ParserState {
     /// Stack of currently open tags (tag name and accumulated content)
     open_tags: Vec<(String, String)>,
@@ -212,7 +206,6 @@ struct ParserState {
     /// Whether the last emitted top-level content ended with a newline
     last_content_had_newline: bool,
 }
-
 
 /// XML parser that can process streaming or complete text and emit events
 #[derive(Debug, Clone)]
@@ -237,10 +230,7 @@ impl XmlParser {
 
     /// Reset the parser state (useful for new generations)
     pub fn reset(&self) {
-        *self
-            .state
-            .lock()
-            .expect("parser lock poisoned") = ParserState::default();
+        *self.state.lock().expect("parser lock poisoned") = ParserState::default();
     }
 
     /// Parse a complete text and return all events
@@ -270,10 +260,7 @@ impl XmlParser {
         // innermost open tag (if any). This enables true streaming behaviour: callers get
         // incremental updates instead of the whole block at close time.
         {
-            let mut state = self
-                .state
-                .lock()
-                .expect("parser lock poisoned");
+            let mut state = self.state.lock().expect("parser lock poisoned");
 
             if state.open_tags.is_empty() {
                 // Outside of any registered tag.
@@ -344,10 +331,7 @@ impl XmlParser {
     /// Process a single character and return an event if one is ready
     fn process_char(&self, c: char) -> Vec<Event> {
         let mut events = Vec::new();
-        let mut state = self
-            .state
-            .lock()
-            .expect("parser lock poisoned");
+        let mut state = self.state.lock().expect("parser lock poisoned");
 
         match c {
             '<' => {
@@ -494,10 +478,7 @@ impl XmlParser {
 
     /// Flush any remaining content and return events
     pub fn flush(&self) -> Vec<Event> {
-        let mut state = self
-            .state
-            .lock()
-            .expect("parser lock poisoned");
+        let mut state = self.state.lock().expect("parser lock poisoned");
         let mut events = Vec::new();
 
         // Emit any remaining content

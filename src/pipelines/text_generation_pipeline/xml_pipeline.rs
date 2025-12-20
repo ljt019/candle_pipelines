@@ -1,16 +1,14 @@
 use super::base_pipeline::BasePipeline;
 use super::model::TextGenerationModel;
-use super::model::{
-    LanguageModelContext, ToggleableReasoning,
-};
-use super::tools::{ErrorStrategy, Tool, ToolCalling};
-use super::pipeline::Input;
+use super::model::{LanguageModelContext, ToggleableReasoning};
 use super::parser::{Event, XmlParser};
+use super::pipeline::Input;
+use super::tools::{ErrorStrategy, Tool, ToolCalling};
 use crate::models::generation::GenerationParams;
 use async_stream::stream;
+use futures::Stream;
 use regex::Regex;
 use serde::Deserialize;
-use futures::Stream;
 
 /// XML generation pipeline that outputs parsed Events
 pub struct XmlGenerationPipeline<M: TextGenerationModel> {
@@ -78,13 +76,11 @@ impl<M: TextGenerationModel + Send> XmlGenerationPipeline<M> {
         self.base.completion_from_tokens(&prompt_tokens).await
     }
 
-    async fn message_completion_internal(&self, messages: &[crate::Message]) -> anyhow::Result<String> {
-        let templated_prompt = self
-            .base
-            .model
-            .lock()
-            .await
-            .apply_chat_template(messages)?;
+    async fn message_completion_internal(
+        &self,
+        messages: &[crate::Message],
+    ) -> anyhow::Result<String> {
+        let templated_prompt = self.base.model.lock().await.apply_chat_template(messages)?;
 
         let new_tokens = self
             .base
@@ -129,7 +125,11 @@ impl<M: TextGenerationModel + Send> XmlGenerationPipeline<M> {
     pub async fn completion_stream<'a>(
         &'a self,
         input: impl Into<Input<'a>>,
-    ) -> anyhow::Result<crate::pipelines::text_generation_pipeline::streaming::EventStream<impl Stream<Item = Event> + Send + 'a>> {
+    ) -> anyhow::Result<
+        crate::pipelines::text_generation_pipeline::streaming::EventStream<
+            impl Stream<Item = Event> + Send + 'a,
+        >,
+    > {
         match input.into() {
             Input::Prompt(p) => {
                 self.base.context.lock().await.reset();
@@ -150,12 +150,7 @@ impl<M: TextGenerationModel + Send> XmlGenerationPipeline<M> {
                 Ok(self.event_stream_from_tokens(tokens))
             }
             Input::Messages(m) => {
-                let templated = self
-                    .base
-                    .model
-                    .lock()
-                    .await
-                    .apply_chat_template(m)?;
+                let templated = self.base.model.lock().await.apply_chat_template(m)?;
                 let new_tokens = self
                     .base
                     .model_tokenizer
@@ -169,7 +164,8 @@ impl<M: TextGenerationModel + Send> XmlGenerationPipeline<M> {
                     self.base.context.lock().await.reset();
                     self.base.last_processed_tokens.lock().await.clear();
                 } else if self.base.can_reuse_cache(&new_tokens).await {
-                    let suffix = new_tokens[self.base.last_processed_tokens.lock().await.len()..].to_vec();
+                    let suffix =
+                        new_tokens[self.base.last_processed_tokens.lock().await.len()..].to_vec();
                     *self.base.last_processed_tokens.lock().await = new_tokens;
                     return Ok(self.event_stream_from_tokens(suffix));
                 } else {
@@ -185,12 +181,14 @@ impl<M: TextGenerationModel + Send> XmlGenerationPipeline<M> {
     fn event_stream_from_tokens<'a>(
         &'a self,
         tokens: Vec<u32>,
-    ) -> crate::pipelines::text_generation_pipeline::streaming::EventStream<impl Stream<Item = Event> + Send + 'a>
+    ) -> crate::pipelines::text_generation_pipeline::streaming::EventStream<
+        impl Stream<Item = Event> + Send + 'a,
+    >
     where
         M: Send + 'a,
     {
-        use futures::StreamExt;
         use async_stream::stream;
+        use futures::StreamExt;
 
         let inner = self.base.token_stream(tokens);
 
@@ -212,7 +210,7 @@ impl<M: TextGenerationModel + Send> XmlGenerationPipeline<M> {
                 yield event;
             }
         };
-        
+
         crate::pipelines::text_generation_pipeline::streaming::EventStream::new(event_stream)
     }
 }
@@ -243,11 +241,7 @@ impl<M: TextGenerationModel + ToolCalling + Send> XmlGenerationPipeline<M> {
 
     pub async fn unregister_tools(&self, tools: Vec<Tool>) -> anyhow::Result<()> {
         for tool in tools {
-            self.base
-                .model
-                .lock()
-                .await
-                .unregister_tool(&tool.name)?;
+            self.base.model.lock().await.unregister_tool(&tool.name)?;
         }
         Ok(())
     }
@@ -405,7 +399,11 @@ impl<M: TextGenerationModel + ToolCalling + Send> XmlGenerationPipeline<M> {
     pub async fn completion_stream_with_tools<'a>(
         &'a self,
         input: impl Into<Input<'a>>,
-    ) -> anyhow::Result<crate::pipelines::text_generation_pipeline::streaming::EventStream<impl Stream<Item = Event> + Send + 'a>> {
+    ) -> anyhow::Result<
+        crate::pipelines::text_generation_pipeline::streaming::EventStream<
+            impl Stream<Item = Event> + Send + 'a,
+        >,
+    > {
         use async_stream::stream;
         use futures::StreamExt;
 
@@ -529,7 +527,7 @@ impl<M: TextGenerationModel + ToolCalling + Send> XmlGenerationPipeline<M> {
                 }
             }
         };
-        
+
         Ok(crate::pipelines::text_generation_pipeline::streaming::EventStream::new(event_stream))
     }
 
@@ -538,11 +536,7 @@ impl<M: TextGenerationModel + ToolCalling + Send> XmlGenerationPipeline<M> {
         let mut tool_calls = Vec::new();
 
         for cap in tool_regex.captures_iter(text) {
-            let json_str = cap
-                .get(1)
-                .expect("expected capture group")
-                .as_str()
-                .trim();
+            let json_str = cap.get(1).expect("expected capture group").as_str().trim();
             match serde_json::from_str::<RawToolCall>(json_str) {
                 Ok(raw_call) => {
                     tool_calls.push(ToolCallInvocation {

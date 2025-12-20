@@ -1,7 +1,9 @@
 use super::model::EmbeddingModel;
 use super::pipeline::EmbeddingPipeline;
 use crate::core::ModelOptions;
-use crate::pipelines::utils::{BasePipelineBuilder, DeviceRequest, DeviceSelectable, StandardPipelineBuilder};
+use crate::pipelines::utils::{
+    BasePipelineBuilder, DeviceRequest, DeviceSelectable, StandardPipelineBuilder,
+};
 use std::sync::Arc;
 
 pub struct EmbeddingPipelineBuilder<M: EmbeddingModel>(StandardPipelineBuilder<M::Options>);
@@ -30,7 +32,7 @@ where
     fn options(&self) -> &Self::Options {
         &self.0.options
     }
-    
+
     fn device_request(&self) -> &DeviceRequest {
         &self.0.device_request
     }
@@ -38,12 +40,15 @@ where
     fn create_model(options: Self::Options, device: candle_core::Device) -> anyhow::Result<M> {
         M::new(options, device)
     }
-    
+
     fn get_tokenizer(options: Self::Options) -> anyhow::Result<tokenizers::Tokenizer> {
         M::get_tokenizer(options)
     }
-    
-    fn construct_pipeline(model: M, tokenizer: tokenizers::Tokenizer) -> anyhow::Result<Self::Pipeline> {
+
+    fn construct_pipeline(
+        model: M,
+        tokenizer: tokenizers::Tokenizer,
+    ) -> anyhow::Result<Self::Pipeline> {
         Ok(EmbeddingPipeline {
             model: Arc::new(model),
             tokenizer,
@@ -51,9 +56,12 @@ where
     }
 }
 
-impl EmbeddingPipelineBuilder<crate::models::implementations::qwen3_embeddings::Qwen3EmbeddingModel> {
-    pub fn qwen3(size: crate::models::implementations::qwen3_embeddings::Qwen3EmbeddingSize) -> Self {
+impl
+    EmbeddingPipelineBuilder<crate::models::implementations::qwen3_embeddings::Qwen3EmbeddingModel>
+{
+    pub fn qwen3(
+        size: crate::models::implementations::qwen3_embeddings::Qwen3EmbeddingSize,
+    ) -> Self {
         Self::new(size)
     }
 }
-

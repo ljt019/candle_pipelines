@@ -1,9 +1,13 @@
 use super::model::ZeroShotClassificationModel;
 use super::pipeline::ZeroShotClassificationPipeline;
 use crate::core::ModelOptions;
-use crate::pipelines::utils::{BasePipelineBuilder, DeviceRequest, DeviceSelectable, StandardPipelineBuilder};
+use crate::pipelines::utils::{
+    BasePipelineBuilder, DeviceRequest, DeviceSelectable, StandardPipelineBuilder,
+};
 
-pub struct ZeroShotClassificationPipelineBuilder<M: ZeroShotClassificationModel>(StandardPipelineBuilder<M::Options>);
+pub struct ZeroShotClassificationPipelineBuilder<M: ZeroShotClassificationModel>(
+    StandardPipelineBuilder<M::Options>,
+);
 
 impl<M: ZeroShotClassificationModel> ZeroShotClassificationPipelineBuilder<M> {
     pub fn new(options: M::Options) -> Self {
@@ -17,7 +21,8 @@ impl<M: ZeroShotClassificationModel> DeviceSelectable for ZeroShotClassification
     }
 }
 
-impl<M: ZeroShotClassificationModel> BasePipelineBuilder<M> for ZeroShotClassificationPipelineBuilder<M>
+impl<M: ZeroShotClassificationModel> BasePipelineBuilder<M>
+    for ZeroShotClassificationPipelineBuilder<M>
 where
     M: Clone + Send + Sync + 'static,
     M::Options: ModelOptions + Clone,
@@ -29,7 +34,7 @@ where
     fn options(&self) -> &Self::Options {
         &self.0.options
     }
-    
+
     fn device_request(&self) -> &DeviceRequest {
         &self.0.device_request
     }
@@ -37,12 +42,15 @@ where
     fn create_model(options: Self::Options, device: candle_core::Device) -> anyhow::Result<M> {
         M::new(options, device)
     }
-    
+
     fn get_tokenizer(options: Self::Options) -> anyhow::Result<tokenizers::Tokenizer> {
         M::get_tokenizer(options)
     }
-    
-    fn construct_pipeline(model: M, tokenizer: tokenizers::Tokenizer) -> anyhow::Result<Self::Pipeline> {
+
+    fn construct_pipeline(
+        model: M,
+        tokenizer: tokenizers::Tokenizer,
+    ) -> anyhow::Result<Self::Pipeline> {
         Ok(ZeroShotClassificationPipeline { model, tokenizer })
     }
 }
@@ -56,4 +64,3 @@ impl
         Self::new(size)
     }
 }
-

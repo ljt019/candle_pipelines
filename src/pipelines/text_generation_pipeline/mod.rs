@@ -16,43 +16,44 @@
 //! ## Usage Example
 //!
 //! ```rust,no_run
+//! use anyhow::Result;
 //! use transformers::pipelines::text_generation_pipeline::*;
 //!
-//! # tokio_test::block_on(async {
-//! // Create a text generation pipeline
-//! let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
-//!     .temperature(0.7)
-//!     .max_len(100)
-//!     .build()
-//!     .await?;
+//! #[tokio::main]
+//! async fn main() -> Result<()> {
+//!     // Create a text generation pipeline
+//!     let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
+//!         .temperature(0.7)
+//!         .max_len(100)
+//!         .build()
+//!         .await?;
 //!
-//! // Generate text completion
-//! let completion = pipeline.completion("Once upon a time").await?;
-//! println!("Generated: {}", completion);
+//!     // Generate text completion
+//!     let completion = pipeline.completion("Once upon a time").await?;
+//!     println!("Generated: {}", completion);
 //!
-//! // Stream generation in real-time
-//! let mut stream = pipeline.completion_stream("Tell me about").await?;
-//! while let Some(token) = stream.next().await {
-//!     print!("{}", token?);
-//!     std::io::stdout().flush().unwrap();
+//!     // Stream generation in real-time
+//!     let mut stream = pipeline.completion_stream("Tell me about Rust.").await?;
+//!     while let Some(chunk) = stream.next().await {
+//!         print!("{}", chunk?);
+//!     }
+//!     Ok(())
 //! }
-//! # anyhow::Ok(())
-//! # });
 //! ```
 
 pub mod base_pipeline;
 pub mod builder;
-pub mod parser;
-pub mod streaming;
 pub mod model;
+pub mod parser;
 pub mod pipeline;
+pub mod streaming;
 pub mod tools;
 pub mod xml_pipeline;
 
 pub use crate::tools;
 pub use builder::TextGenerationPipelineBuilder;
-pub use streaming::{CompletionStream, EventStream};
 pub use pipeline::{Input, TextGenerationPipeline};
+pub use streaming::{CompletionStream, EventStream};
 pub use xml_pipeline::XmlGenerationPipeline;
 
 // Convenience re-exports so users can simply

@@ -1,9 +1,13 @@
 use super::model::SentimentAnalysisModel;
 use super::pipeline::SentimentAnalysisPipeline;
 use crate::core::ModelOptions;
-use crate::pipelines::utils::{BasePipelineBuilder, DeviceRequest, DeviceSelectable, StandardPipelineBuilder};
+use crate::pipelines::utils::{
+    BasePipelineBuilder, DeviceRequest, DeviceSelectable, StandardPipelineBuilder,
+};
 
-pub struct SentimentAnalysisPipelineBuilder<M: SentimentAnalysisModel>(StandardPipelineBuilder<M::Options>);
+pub struct SentimentAnalysisPipelineBuilder<M: SentimentAnalysisModel>(
+    StandardPipelineBuilder<M::Options>,
+);
 
 impl<M: SentimentAnalysisModel> SentimentAnalysisPipelineBuilder<M> {
     pub fn new(options: M::Options) -> Self {
@@ -29,7 +33,7 @@ where
     fn options(&self) -> &Self::Options {
         &self.0.options
     }
-    
+
     fn device_request(&self) -> &DeviceRequest {
         &self.0.device_request
     }
@@ -37,12 +41,15 @@ where
     fn create_model(options: Self::Options, device: candle_core::Device) -> anyhow::Result<M> {
         M::new(options, device)
     }
-    
+
     fn get_tokenizer(options: Self::Options) -> anyhow::Result<tokenizers::Tokenizer> {
         M::get_tokenizer(options)
     }
-    
-    fn construct_pipeline(model: M, tokenizer: tokenizers::Tokenizer) -> anyhow::Result<Self::Pipeline> {
+
+    fn construct_pipeline(
+        model: M,
+        tokenizer: tokenizers::Tokenizer,
+    ) -> anyhow::Result<Self::Pipeline> {
         Ok(SentimentAnalysisPipeline { model, tokenizer })
     }
 }
@@ -56,4 +63,3 @@ impl
         Self::new(size)
     }
 }
-

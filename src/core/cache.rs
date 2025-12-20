@@ -100,7 +100,10 @@ impl ModelCache {
 
         {
             let mut cache = self.cache.lock().await;
-            cache.insert(cache_key, Arc::new(model.clone()) as Arc<dyn Any + Send + Sync>);
+            cache.insert(
+                cache_key,
+                Arc::new(model.clone()) as Arc<dyn Any + Send + Sync>,
+            );
         }
 
         Ok(model)
@@ -177,5 +180,39 @@ mod tests {
 
         assert_eq!(model1.id, model2.id);
         assert_eq!(model1.id, "original");
+    }
+
+    #[tokio::test]
+    async fn test_cache_separates_types_for_same_key() {
+        let cache = ModelCache::new();
+
+        #[derive(Clone)]
+        struct A(&'static str);
+        #[derive(Clone)]
+        struct B(&'static str);
+
+        let a = cache
+            .get_or_create::<A, _>("same-key", || Ok(A("a")))
+            .await
+            .unwrap();
+        let b = cache
+            .get_or_create::<B, _>("same-key", || Ok(B("b")))
+            .await
+            .unwrap();
+
+        assert_eq!(a.0, "a");
+        assert_eq!(b.0, "b");
+    }
+
+    #[tokio::test]
+    async fn test_cache_clear_empties_storage() {
+        let cache = ModelCache::new();
+        #[derive(Clone)]
+        struct A;
+        let _ = cache.get_or_create::<A, _>("k", || Ok(A)).await.unwrap();
+        assert!(!cache.is_empty().await);
+        cache.clear().await;
+        assert!(cache.is_empty().await);
+        assert_eq!(cache.len().await, 0);
     }
 }

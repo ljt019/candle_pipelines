@@ -1,8 +1,8 @@
+use crate::pipelines::text_generation_pipeline::parser::Event;
 use futures::Stream;
+use pin_project_lite::pin_project;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use pin_project_lite::pin_project;
-use crate::pipelines::text_generation_pipeline::parser::Event;
 
 pin_project! {
     /// Convenience wrapper around the streaming output of XML pipeline.
@@ -14,11 +14,13 @@ pin_project! {
 
 impl<S> EventStream<S> {
     pub(crate) fn new(inner: S) -> Self {
-        Self { inner: Box::pin(inner) }
+        Self {
+            inner: Box::pin(inner),
+        }
     }
 
     /// Get the next event from the stream.
-    /// 
+    ///
     /// Returns `None` when the stream is exhausted.
     pub async fn next(&mut self) -> Option<Event>
     where
@@ -46,8 +48,8 @@ impl<S> EventStream<S> {
     where
         S: Stream<Item = Event>,
     {
-        use futures::StreamExt;
         use crate::pipelines::text_generation_pipeline::parser::TagParts;
+        use futures::StreamExt;
         let mut out = String::new();
         while let Some(event) = self.inner.as_mut().next().await {
             if event.part() == TagParts::Content {
@@ -114,7 +116,7 @@ impl<S> EventStream<S> {
 
 impl<S> Stream for EventStream<S>
 where
-    S: Stream<Item = Event>, 
+    S: Stream<Item = Event>,
 {
     type Item = Event;
 

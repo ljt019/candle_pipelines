@@ -16,23 +16,28 @@
 //!
 //! ```rust,no_run
 //! use transformers::pipelines::reranker_pipeline::*;
+//! use transformers::pipelines::utils::BasePipelineBuilder;
 //!
-//! # tokio_test::block_on(async {
-//! // Create a reranking pipeline
-//! let pipeline = RerankPipelineBuilder::qwen3(Qwen3RerankSize::Size0_6B)
-//!     .build()
-//!     .await?;
+//! #[tokio::main]
+//! async fn main() -> anyhow::Result<()> {
+//!     // Create a reranking pipeline
+//!     let pipeline = RerankPipelineBuilder::qwen3(Qwen3RerankSize::Size0_6B)
+//!         .build()
+//!         .await?;
 //!
-//! // Rerank documents
-//! let query = "machine learning algorithms";
-//! let documents = vec!["Neural networks", "Decision trees", "Random forests"];
-//! let results = pipeline.rerank(query, &documents).await?;
-//! 
-//! for result in results {
-//!     println!("Document: {} (score: {:.3})", result.document, result.score);
+//!     // Rerank documents
+//!     let query = "machine learning algorithms";
+//!     let documents = ["Neural networks", "Decision trees", "Random forests"];
+//!     let results = pipeline.rerank(query, &documents).await?;
+//!
+//!     for result in results {
+//!         println!(
+//!             "Document: {} (score: {:.3})",
+//!             documents[result.index], result.score
+//!         );
+//!     }
+//!     Ok(())
 //! }
-//! # anyhow::Ok(())
-//! # });
 //! ```
 
 pub mod builder;

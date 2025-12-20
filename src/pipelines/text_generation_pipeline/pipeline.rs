@@ -3,9 +3,7 @@
 use super::base_pipeline::BasePipeline;
 
 use super::model::TextGenerationModel;
-use super::model::{
-    LanguageModelContext, ToggleableReasoning,
-};
+use super::model::{LanguageModelContext, ToggleableReasoning};
 use super::tools::{ErrorStrategy, Tool, ToolCalling};
 use crate::models::generation::GenerationParams;
 use async_stream::try_stream;
@@ -100,13 +98,11 @@ impl<M: TextGenerationModel + Send> TextGenerationPipeline<M> {
         self.base.completion_from_tokens(&prompt_tokens).await
     }
 
-    async fn message_completion_internal(&self, messages: &[crate::Message]) -> anyhow::Result<String> {
-        let templated_prompt = self
-            .base
-            .model
-            .lock()
-            .await
-            .apply_chat_template(messages)?;
+    async fn message_completion_internal(
+        &self,
+        messages: &[crate::Message],
+    ) -> anyhow::Result<String> {
+        let templated_prompt = self.base.model.lock().await.apply_chat_template(messages)?;
 
         let new_tokens = self
             .base
@@ -152,7 +148,9 @@ impl<M: TextGenerationModel + Send> TextGenerationPipeline<M> {
         &'a self,
         input: impl Into<Input<'a>>,
     ) -> anyhow::Result<
-        crate::pipelines::text_generation_pipeline::streaming::CompletionStream<impl futures::Stream<Item = anyhow::Result<String>> + Send + 'a>,
+        crate::pipelines::text_generation_pipeline::streaming::CompletionStream<
+            impl futures::Stream<Item = anyhow::Result<String>> + Send + 'a,
+        >,
     > {
         match input.into() {
             Input::Prompt(p) => {
@@ -173,12 +171,7 @@ impl<M: TextGenerationModel + Send> TextGenerationPipeline<M> {
                 Ok(self.completion_stream_from_tokens(tokens))
             }
             Input::Messages(m) => {
-                let templated = self
-                    .base
-                    .model
-                    .lock()
-                    .await
-                    .apply_chat_template(m)?;
+                let templated = self.base.model.lock().await.apply_chat_template(m)?;
                 let new_tokens = self
                     .base
                     .model_tokenizer
@@ -209,7 +202,9 @@ impl<M: TextGenerationModel + Send> TextGenerationPipeline<M> {
     fn completion_stream_from_tokens<'a>(
         &'a self,
         tokens: Vec<u32>,
-    ) -> crate::pipelines::text_generation_pipeline::streaming::CompletionStream<impl futures::Stream<Item = anyhow::Result<String>> + Send + 'a>
+    ) -> crate::pipelines::text_generation_pipeline::streaming::CompletionStream<
+        impl futures::Stream<Item = anyhow::Result<String>> + Send + 'a,
+    >
     where
         M: Send + 'a,
     {
@@ -244,11 +239,7 @@ impl<M: TextGenerationModel + ToolCalling + Send> TextGenerationPipeline<M> {
 
     pub async fn unregister_tools(&self, tools: Vec<Tool>) -> anyhow::Result<()> {
         for tool in tools {
-            self.base
-                .model
-                .lock()
-                .await
-                .unregister_tool(&tool.name)?;
+            self.base.model.lock().await.unregister_tool(&tool.name)?;
         }
         Ok(())
     }
@@ -315,7 +306,10 @@ impl<M: TextGenerationModel + ToolCalling + Send> TextGenerationPipeline<M> {
         Ok(tool_responses)
     }
 
-    pub async fn completion_with_tools<'a>(&self, input: impl Into<Input<'a>>) -> anyhow::Result<String> {
+    pub async fn completion_with_tools<'a>(
+        &self,
+        input: impl Into<Input<'a>>,
+    ) -> anyhow::Result<String> {
         let tools = self.base.model.lock().await.registered_tools();
         if tools.is_empty() {
             anyhow::bail!("No tools registered. Call register_tools() first.");
@@ -353,7 +347,7 @@ impl<M: TextGenerationModel + ToolCalling + Send> TextGenerationPipeline<M> {
                     self.base.context.lock().await.reset();
                     self.base.last_processed_tokens.lock().await.clear();
                     self.base.completion_from_tokens(&new_tokens).await?
-        } else if self.base.can_reuse_cache(&new_tokens).await {
+                } else if self.base.can_reuse_cache(&new_tokens).await {
                     let prefix_len = self.base.last_processed_tokens.lock().await.len();
                     let new_portion = &new_tokens[prefix_len..];
                     let res = self.base.completion_from_tokens(new_portion).await?;
@@ -404,7 +398,9 @@ impl<M: TextGenerationModel + ToolCalling + Send> TextGenerationPipeline<M> {
         &'a self,
         input: impl Into<Input<'a>>,
     ) -> anyhow::Result<
-        crate::pipelines::text_generation_pipeline::streaming::CompletionStream<impl futures::Stream<Item = anyhow::Result<String>> + Send + 'a>,
+        crate::pipelines::text_generation_pipeline::streaming::CompletionStream<
+            impl futures::Stream<Item = anyhow::Result<String>> + Send + 'a,
+        >,
     > {
         use async_stream::try_stream;
         use futures::StreamExt;
@@ -481,11 +477,7 @@ impl<M: TextGenerationModel + ToolCalling + Send> TextGenerationPipeline<M> {
         let mut tool_calls = Vec::new();
 
         for cap in tool_regex.captures_iter(text) {
-            let json_str = cap
-                .get(1)
-                .expect("expected capture group")
-                .as_str()
-                .trim();
+            let json_str = cap.get(1).expect("expected capture group").as_str().trim();
             match serde_json::from_str::<RawToolCall>(json_str) {
                 Ok(raw_call) => {
                     tool_calls.push(ToolCallInvocation {

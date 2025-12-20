@@ -1,14 +1,14 @@
 use crate::core::{global_cache, ModelOptions};
 use crate::models::{Gemma3Model, Gemma3Size, Qwen3Model, Qwen3Size};
-use crate::pipelines::utils::{DeviceRequest, DeviceSelectable};
+use crate::pipelines::utils::{build_cache_key, DeviceRequest, DeviceSelectable};
 
-use super::parser::XmlParserBuilder;
 use super::model::TextGenerationModel;
+use super::parser::XmlParserBuilder;
 use super::pipeline::TextGenerationPipeline;
 use super::xml_pipeline::XmlGenerationPipeline;
 
 /// Builder for text generation pipelines.
-/// 
+///
 /// Note: This builder doesn't use the shared `BasePipelineBuilder` trait because
 /// it has a more complex building pattern with many configuration options
 /// (temperature, top_p, etc.), async model creation, and different caching logic.
@@ -87,11 +87,18 @@ impl<M: TextGenerationModel> TextGenerationPipelineBuilder<M> {
         M: Clone + Send + Sync + 'static,
         M::Options: ModelOptions + Clone,
     {
-        // Always use the global cache to share models
-        let cache_key = self.model_options.cache_key();
+        // Resolve device first so model weights and inference tensors live on the same device.
+        let device = self.device_request.resolve()?;
+
+        // Include device in the cache key so CPU/GPU variants don't get mixed.
+        let cache_key = build_cache_key(&self.model_options, &device);
+
+        // Always use the global cache to share models (weights) across pipelines.
+        let options = self.model_options.clone();
+        let device_for_model = device.clone();
         let model = global_cache()
-            .get_or_create_async(&cache_key, || async {
-                M::new(self.model_options.clone()).await
+            .get_or_create_async(&cache_key, || async move {
+                M::new(options, device_for_model).await
             })
             .await?;
 
@@ -109,8 +116,6 @@ impl<M: TextGenerationModel> TextGenerationPipelineBuilder<M> {
             self.top_k.unwrap_or(default_params.top_k),
             self.min_p.unwrap_or(default_params.min_p),
         );
-        let device = self.device_request.resolve()?;
-
         TextGenerationPipeline::new(model, gen_params, device).await
     }
 
@@ -119,11 +124,18 @@ impl<M: TextGenerationModel> TextGenerationPipelineBuilder<M> {
         M: Clone + Send + Sync + 'static,
         M::Options: ModelOptions + Clone,
     {
-        // Always use the global cache to share models
-        let cache_key = self.model_options.cache_key();
+        // Resolve device first so model weights and inference tensors live on the same device.
+        let device = self.device_request.resolve()?;
+
+        // Include device in the cache key so CPU/GPU variants don't get mixed.
+        let cache_key = build_cache_key(&self.model_options, &device);
+
+        // Always use the global cache to share models (weights) across pipelines.
+        let options = self.model_options.clone();
+        let device_for_model = device.clone();
         let model = global_cache()
-            .get_or_create_async(&cache_key, || async {
-                M::new(self.model_options.clone()).await
+            .get_or_create_async(&cache_key, || async move {
+                M::new(options, device_for_model).await
             })
             .await?;
 
@@ -147,8 +159,6 @@ impl<M: TextGenerationModel> TextGenerationPipelineBuilder<M> {
             builder.register_tag(*tag);
         }
         let xml_parser = builder.build();
-        let device = self.device_request.resolve()?;
-
         XmlGenerationPipeline::new(model, gen_params, xml_parser, device).await
     }
 }

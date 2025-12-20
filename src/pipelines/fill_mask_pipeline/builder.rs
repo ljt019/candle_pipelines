@@ -1,7 +1,9 @@
 use super::model::FillMaskModel;
 use super::pipeline::FillMaskPipeline;
 use crate::core::ModelOptions;
-use crate::pipelines::utils::{BasePipelineBuilder, DeviceRequest, DeviceSelectable, StandardPipelineBuilder};
+use crate::pipelines::utils::{
+    BasePipelineBuilder, DeviceRequest, DeviceSelectable, StandardPipelineBuilder,
+};
 
 pub struct FillMaskPipelineBuilder<M: FillMaskModel>(StandardPipelineBuilder<M::Options>);
 
@@ -29,7 +31,7 @@ where
     fn options(&self) -> &Self::Options {
         &self.0.options
     }
-    
+
     fn device_request(&self) -> &DeviceRequest {
         &self.0.device_request
     }
@@ -37,12 +39,15 @@ where
     fn create_model(options: Self::Options, device: candle_core::Device) -> anyhow::Result<M> {
         M::new(options, device)
     }
-    
+
     fn get_tokenizer(options: Self::Options) -> anyhow::Result<tokenizers::Tokenizer> {
         M::get_tokenizer(options)
     }
-    
-    fn construct_pipeline(model: M, tokenizer: tokenizers::Tokenizer) -> anyhow::Result<Self::Pipeline> {
+
+    fn construct_pipeline(
+        model: M,
+        tokenizer: tokenizers::Tokenizer,
+    ) -> anyhow::Result<Self::Pipeline> {
         Ok(FillMaskPipeline { model, tokenizer })
     }
 }
@@ -52,4 +57,3 @@ impl FillMaskPipelineBuilder<crate::models::implementations::modernbert::FillMas
         Self::new(size)
     }
 }
-

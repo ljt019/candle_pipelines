@@ -15,24 +15,27 @@
 //! ## Usage Example
 //!
 //! ```rust,no_run
+//! use anyhow::Result;
+//! use transformers::pipelines::utils::BasePipelineBuilder;
 //! use transformers::pipelines::zero_shot_classification_pipeline::*;
 //!
-//! # tokio_test::block_on(async {
-//! // Create a zero-shot classification pipeline
-//! let pipeline = ZeroShotClassificationPipelineBuilder::modernbert(ModernBertSize::Base)
-//!     .build()
-//!     .await?;
+//! #[tokio::main]
+//! async fn main() -> Result<()> {
+//!     // Create a zero-shot classification pipeline
+//!     let pipeline = ZeroShotClassificationPipelineBuilder::modernbert(ModernBertSize::Base)
+//!         .build()
+//!         .await?;
 //!
-//! // Classify text into arbitrary categories
-//! let text = "The movie was absolutely fantastic!";
-//! let labels = vec!["positive", "negative", "neutral"];
-//! let results = pipeline.classify(text, &labels).await?;
+//!     // Classify text into arbitrary categories
+//!     let text = "The movie was absolutely fantastic!";
+//!     let labels = ["positive", "negative", "neutral"];
+//!     let results = pipeline.classify(text, &labels)?;
 //!
-//! for result in results {
-//!     println!("Label: {} (confidence: {:.2})", result.label, result.score);
+//!     for result in results {
+//!         println!("Label: {} (confidence: {:.2})", result.label, result.score);
+//!     }
+//!     Ok(())
 //! }
-//! # anyhow::Ok(())
-//! # });
 //! ```
 
 pub mod builder;

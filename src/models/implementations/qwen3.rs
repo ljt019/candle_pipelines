@@ -11,6 +11,7 @@ use crate::models::RmsNorm;
 use candle_core::quantized::{gguf_file, QMatMul};
 use candle_core::{DType, Device, Result, Tensor};
 use candle_nn::{kv_cache::KvCache, Activation, Embedding, Module};
+use candle_transformers::models::quantized_qwen3 as candle_qwen3;
 use minijinja::UndefinedBehavior;
 use minijinja::{context, Environment};
 use minijinja_contrib::{add_to_environment, pycompat};
@@ -19,8 +20,6 @@ use std::sync::Arc;
 use tokenizers::Tokenizer;
 
 // Constants
-const DEFAULT_CACHE_SIZE: usize = 64;
-const KV_CACHE_DIMS: usize = 2;
 
 /// Repeats a key or value tensor for grouped query attention
 /// The input tensor should have a shape `(batch, num_kv_heads, seq_len, head_dim)`,
@@ -365,10 +364,6 @@ pub struct ModelWeights {
     embeddings: Embedding,
     layers: Vec<TransformerLayer>,
     final_norm: RmsNorm,
-    output_projection: QMatMul,
-    device: Device,
-    dtype: DType,
-    max_seq_len: usize,
 }
 
 impl ModelWeights {
@@ -434,58 +429,11 @@ impl ModelWeights {
             rms_eps,
         )?;
 
-        let output_tensor = content
-            .tensor(reader, "output.weight", device)
-            .or_else(|_| content.tensor(reader, "token_embd.weight", device))?; // Fallback to tied weights
-        let output_projection = QMatMul::from_qtensor(output_tensor)?;
-
         Ok(Self {
             embeddings,
             layers,
             final_norm,
-            output_projection,
-            device: device.clone(),
-            dtype,
-            max_seq_len,
         })
-    }
-
-    /// Create a causal attention mask.
-    fn create_causal_mask(
-        &self,
-        batch_size: usize,
-        seq_len: usize,
-        position_offset: usize,
-    ) -> Result<Tensor> {
-        let total_len = seq_len + position_offset;
-
-        // Create position indices
-        let row_ids = Tensor::arange(0u32, seq_len as u32, &self.device)?
-            .to_dtype(DType::I64)?
-            .reshape((seq_len, 1))?
-            .broadcast_add(&Tensor::new(&[position_offset as i64], &self.device)?)?;
-
-        let col_ids = Tensor::arange(0u32, total_len as u32, &self.device)?
-            .to_dtype(DType::I64)?
-            .reshape((1, total_len))?;
-
-        // Create causal mask (can only attend to previous positions)
-        let mask = row_ids
-            .broadcast_as(&[seq_len, total_len])?
-            .ge(&col_ids.broadcast_as(&[seq_len, total_len])?)?;
-
-        // Convert to float mask with -inf (F32) for masked positions
-        let neg_inf =
-            Tensor::new(&[f32::NEG_INFINITY], &self.device)?.broadcast_as(&[seq_len, total_len])?;
-        let zero = Tensor::zeros(&[seq_len, total_len], DType::F32, &self.device)?;
-
-        let float_mask = mask.where_cond(&zero, &neg_inf)?;
-
-        // Add batch and head dimensions
-        float_mask
-            .unsqueeze(0)?
-            .unsqueeze(0)?
-            .broadcast_as(&[batch_size, 1, seq_len, total_len])
     }
 
     /// Forward pass that returns `[batch, hidden]` embeddings.
@@ -511,30 +459,8 @@ impl ModelWeights {
         last.squeeze(1)
     }
 
-    /// Forward pass returning logits for all tokens in the sequence.
-    pub fn forward_logits(
-        &self,
-        input_ids: &Tensor,
-        attention_mask: Option<&Tensor>,
-    ) -> Result<Tensor> {
-        let (_, t) = input_ids.dims2()?;
-        if t == 0 {
-            return Err(candle_core::Error::Msg(
-                "Input tensor has zero sequence length".to_string(),
-            ));
-        }
-        let mut hidden = self.embeddings.forward(input_ids)?;
-        let mut empty_cache = KvCache::new(2, 1024);
-
-        for layer in self.layers.iter() {
-            hidden = layer.forward(&hidden, attention_mask, 0, &mut empty_cache)?;
-        }
-        hidden = self.final_norm.forward(&hidden)?;
-
-        // Get logits for all tokens by applying output projection
-        let logits = self.output_projection.forward(&hidden)?;
-        Ok(logits)
-    }
+    // Note: This embedding-focused weights struct intentionally does not expose a logits head.
+    // For text-generation, this crate uses `candle-transformers`' maintained quantized Qwen3.
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -604,7 +530,8 @@ use crate::loaders::{GgufModelLoader, TokenizerLoader};
 /// This struct manages the shared weights and creates individual contexts.
 #[derive(Clone)]
 pub struct Qwen3Model {
-    weights: Arc<ModelWeights>,
+    weights: Arc<candle_qwen3::ModelWeights>,
+    info: ModelInfo,
     reasoning: bool,
     generation_config: crate::core::GenerationConfig,
     tools: Vec<crate::pipelines::text_generation_pipeline::Tool>,
@@ -663,7 +590,34 @@ impl Qwen3Model {
         device: &Device,
     ) -> anyhow::Result<Self> {
         let content = gguf_file::Content::read(reader)?;
-        let weights = Arc::new(ModelWeights::from_gguf(content, reader, device)?);
+        let num_layers = content
+            .metadata
+            .get("qwen3.block_count")
+            .ok_or_else(|| anyhow::anyhow!("Missing metadata key: qwen3.block_count"))?
+            .to_u32()? as usize;
+        let max_seq_len = content
+            .metadata
+            .get("qwen3.context_length")
+            .ok_or_else(|| anyhow::anyhow!("Missing metadata key: qwen3.context_length"))?
+            .to_u32()? as usize;
+        let dtype = match content.metadata.get("general.dtype") {
+            Some(v) => match v.to_u32().unwrap_or(1) {
+                0 => DType::F32,
+                1 => DType::F16,
+                _ => DType::F16,
+            },
+            None => DType::F16,
+        };
+        let info = ModelInfo {
+            num_layers,
+            max_seq_len,
+            dtype,
+            device: device.clone(),
+        };
+
+        let weights = Arc::new(candle_qwen3::ModelWeights::from_gguf(
+            content, reader, device,
+        )?);
         let generation_config = crate::loaders::GenerationConfigLoader::new(
             "Qwen/Qwen3-0.6B",
             "generation_config.json",
@@ -673,6 +627,7 @@ impl Qwen3Model {
         let chat_template_env = Self::load_chat_template_env().await?;
         Ok(Self {
             weights,
+            info,
             reasoning: true,
             generation_config,
             tools: Vec::new(),
@@ -696,10 +651,38 @@ impl Qwen3Model {
         .load()
         .await?;
 
-        let weights = Arc::new(ModelWeights::from_gguf(content, &mut file, device)?);
+        let num_layers = content
+            .metadata
+            .get("qwen3.block_count")
+            .ok_or_else(|| anyhow::anyhow!("Missing metadata key: qwen3.block_count"))?
+            .to_u32()? as usize;
+        let max_seq_len = content
+            .metadata
+            .get("qwen3.context_length")
+            .ok_or_else(|| anyhow::anyhow!("Missing metadata key: qwen3.context_length"))?
+            .to_u32()? as usize;
+        let dtype = match content.metadata.get("general.dtype") {
+            Some(v) => match v.to_u32().unwrap_or(1) {
+                0 => DType::F32,
+                1 => DType::F16,
+                _ => DType::F16,
+            },
+            None => DType::F16,
+        };
+        let info = ModelInfo {
+            num_layers,
+            max_seq_len,
+            dtype,
+            device: device.clone(),
+        };
+
+        let weights = Arc::new(candle_qwen3::ModelWeights::from_gguf(
+            content, &mut file, device,
+        )?);
         let chat_template_env = Self::load_chat_template_env().await?;
         Ok(Self {
             weights,
+            info,
             reasoning: true,
             generation_config,
             tools: Vec::new(),
@@ -717,60 +700,47 @@ impl Qwen3Model {
     /// Create a new inference context with this model.
     /// Each context maintains its own KV cache and position tracking.
     pub fn new_context(&self) -> Context {
-        Context::new(self.weights.clone())
+        Context::new(self.weights.clone(), self.info.clone())
     }
 
     /// Create a new context with custom KV cache size.
     pub fn new_context_with_cache_size(&self, cache_size: usize) -> Context {
-        Context::with_cache_size(self.weights.clone(), cache_size)
+        Context::with_cache_size(self.weights.clone(), self.info.clone(), cache_size)
     }
 
     /// Get model information.
     pub fn info(&self) -> ModelInfo {
-        ModelInfo {
-            num_layers: self.weights.layers.len(),
-            max_seq_len: self.weights.max_seq_len,
-            dtype: self.weights.dtype,
-            device: self.weights.device.clone(),
-        }
+        self.info.clone()
     }
 }
 
 /// A single inference context with independent state.
 /// Multiple contexts can share the same model weights.
 pub struct Context {
-    weights: Arc<ModelWeights>,
-    kv_caches: Vec<KvCache>,
+    weights: candle_qwen3::ModelWeights,
+    info: ModelInfo,
     position: usize,
 }
 
 impl Context {
     /// Create a new context with shared weights.
-    pub fn new(weights: Arc<ModelWeights>) -> Self {
-        let num_layers = weights.layers.len();
-        let kv_caches = (0..num_layers)
-            .map(|_| KvCache::new(KV_CACHE_DIMS, DEFAULT_CACHE_SIZE))
-            .collect();
-
+    pub fn new(weights: Arc<candle_qwen3::ModelWeights>, info: ModelInfo) -> Self {
+        let mut weights = (*weights).clone();
+        weights.clear_kv_cache();
         Self {
             weights,
-            kv_caches,
+            info,
             position: 0,
         }
     }
 
-    /// Create a new context with custom KV cache size.
-    pub fn with_cache_size(weights: Arc<ModelWeights>, cache_size: usize) -> Self {
-        let num_layers = weights.layers.len();
-        let kv_caches = (0..num_layers)
-            .map(|_| KvCache::new(KV_CACHE_DIMS, cache_size))
-            .collect();
-
-        Self {
-            weights,
-            kv_caches,
-            position: 0,
-        }
+    /// Kept for API compatibility; cache sizing is managed internally by Candle's implementation.
+    pub fn with_cache_size(
+        weights: Arc<candle_qwen3::ModelWeights>,
+        info: ModelInfo,
+        _cache_size: usize,
+    ) -> Self {
+        Self::new(weights, info)
     }
 
     /// Generate next token logits given input token IDs.
@@ -782,56 +752,21 @@ impl Context {
     /// # Returns
     /// Logits for next token prediction with shape [batch_size, vocab_size]
     pub fn generate(&mut self, input_ids: &Tensor) -> Result<Tensor> {
-        let (batch_size, seq_len) = input_ids.dims2()?;
+        let seq_len = input_ids.dim(1)?;
 
-        // Use current position as offset
-        let position_offset = self.position;
-
-        // Embed input tokens
-        let mut hidden_states = self.weights.embeddings.forward(input_ids)?;
-
-        // Create attention mask (only needed for multi-token sequences)
-        let attention_mask = if seq_len > 1 {
-            Some(
-                self.weights
-                    .create_causal_mask(batch_size, seq_len, position_offset)?,
-            )
-        } else {
-            None
-        };
-
-        // Forward pass through transformer layers
-        for (layer_idx, layer) in self.weights.layers.iter().enumerate() {
-            hidden_states = layer.forward(
-                &hidden_states,
-                attention_mask.as_ref(),
-                position_offset,
-                &mut self.kv_caches[layer_idx],
-            )?;
+        // Starting a fresh sequence → ensure KV cache is empty.
+        if self.position == 0 {
+            self.weights.clear_kv_cache();
         }
 
-        // Final normalization
-        hidden_states = self.weights.final_norm.forward(&hidden_states)?;
-
-        // Extract last token and compute logits
-        let last_hidden = hidden_states.narrow(1, seq_len - 1, 1)?;
-        let logits = self
-            .weights
-            .output_projection
-            .forward(&last_hidden)?
-            .squeeze(1)?;
-
-        // Update position after successful generation
+        let logits = self.weights.forward(input_ids, self.position)?;
         self.position += seq_len;
-
         Ok(logits)
     }
 
     /// Reset context state and position counter.
     pub fn reset(&mut self) {
-        for cache in &mut self.kv_caches {
-            cache.reset();
-        }
+        self.weights.clear_kv_cache();
         self.position = 0;
     }
 
@@ -847,12 +782,7 @@ impl Context {
 
     /// Get model information.
     pub fn info(&self) -> ModelInfo {
-        ModelInfo {
-            num_layers: self.weights.layers.len(),
-            max_seq_len: self.weights.max_seq_len,
-            dtype: self.weights.dtype,
-            device: self.weights.device.clone(),
-        }
+        self.info.clone()
     }
 }
 
@@ -914,11 +844,11 @@ impl TextGenerationModel for Qwen3Model {
     }
 
     fn get_max_seq_len(&self) -> usize {
-        self.weights.max_seq_len
+        self.info.max_seq_len
     }
 
-    async fn new(options: Self::Options) -> anyhow::Result<Self> {
-        Qwen3Model::from_hf(&candle_core::Device::Cpu, options).await
+    async fn new(options: Self::Options, device: candle_core::Device) -> anyhow::Result<Self> {
+        Qwen3Model::from_hf(&device, options).await
     }
 
     async fn get_tokenizer(&self) -> anyhow::Result<tokenizers::Tokenizer> {
@@ -975,7 +905,7 @@ impl TextGenerationModel for Qwen3Model {
     }
 
     fn new_context(&self) -> Context {
-        Context::new(self.weights.clone())
+        Context::new(self.weights.clone(), self.info.clone())
     }
 
     fn clear_context(&self, context: &mut Context) -> anyhow::Result<()> {
