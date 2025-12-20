@@ -1,7 +1,6 @@
 use super::model::EmbeddingModel;
-use tokenizers::Tokenizer;
 use std::sync::Arc;
-
+use tokenizers::Tokenizer;
 
 pub struct EmbeddingPipeline<M: EmbeddingModel> {
     pub(crate) model: Arc<M>,
@@ -13,8 +12,7 @@ where
     M: EmbeddingModel + Send + Sync + 'static,
 {
     /// Compute the embedding for a single text asynchronously.
-    pub async fn embed(&self, text: &str) -> anyhow::Result<Vec<f32>>
-    {
+    pub async fn embed(&self, text: &str) -> anyhow::Result<Vec<f32>> {
         let model = Arc::clone(&self.model);
         let tokenizer = self.tokenizer.clone();
         let text = text.to_owned();
@@ -24,8 +22,7 @@ where
     }
 
     /// Compute embeddings for a batch of texts asynchronously.
-    pub async fn embed_batch(&self, texts: &[&str]) -> anyhow::Result<Vec<Vec<f32>>>
-    {
+    pub async fn embed_batch(&self, texts: &[&str]) -> anyhow::Result<Vec<Vec<f32>>> {
         let model = Arc::clone(&self.model);
         let tokenizer = self.tokenizer.clone();
         let owned: Vec<String> = texts.iter().map(|t| t.to_string()).collect();
@@ -64,8 +61,7 @@ where
         query: &str,
         embeddings: &[Vec<f32>],
         k: usize,
-    ) -> anyhow::Result<Vec<(usize, f32)>>
-    {
+    ) -> anyhow::Result<Vec<(usize, f32)>> {
         let query_emb = self.embed(query).await?;
         Ok(Self::top_k(&query_emb, embeddings, k))
     }

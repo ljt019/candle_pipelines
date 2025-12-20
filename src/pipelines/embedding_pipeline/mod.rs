@@ -14,19 +14,24 @@
 //! ## Usage Example
 //!
 //! ```rust,no_run
+//! use anyhow::Result;
 //! use transformers::pipelines::embedding_pipeline::*;
+//! use transformers::pipelines::utils::BasePipelineBuilder;
 //!
-//! # tokio_test::block_on(async {
-//! // Create an embedding pipeline
-//! let pipeline = EmbeddingPipelineBuilder::qwen3(Qwen3EmbeddingSize::Size0_6B)
-//!     .build()
-//!     .await?;
+//! #[tokio::main]
+//! async fn main() -> Result<()> {
+//!     // Create an embedding pipeline
+//!     let pipeline = EmbeddingPipelineBuilder::qwen3(Qwen3EmbeddingSize::Size0_6B)
+//!         .build()
+//!         .await?;
 //!
-//! // Generate embeddings
-//! let embeddings = pipeline.embed(&["Hello world", "How are you?"]).await?;
-//! println!("Generated {} embeddings", embeddings.len());
-//! # anyhow::Ok(())
-//! # });
+//!     // Generate embeddings
+//!     let embeddings = pipeline
+//!         .embed_batch(&["Hello world", "How are you?"])
+//!         .await?;
+//!     println!("Generated {} embeddings", embeddings.len());
+//!     Ok(())
+//! }
 //! ```
 
 pub mod builder;

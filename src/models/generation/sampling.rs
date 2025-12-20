@@ -323,4 +323,50 @@ pub fn initialize_logits_processor(params: &GenerationParams, seed: u64) -> Logi
     LogitsProcessor::from_sampling(seed, sampling)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use candle_core::Tensor;
 
+    #[test]
+    fn argmax_sampling_picks_max_logit() -> candle_core::Result<()> {
+        let dev = candle_core::Device::Cpu;
+        let logits = Tensor::from_vec(vec![0.1f32, 2.0, -1.0], 3, &dev)?;
+        let mut proc = LogitsProcessor::from_sampling(0, Sampling::ArgMax);
+        let tok = proc.sample(&logits)?;
+        assert_eq!(tok, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn topp_with_p_le_0_behaves_like_full_sampling() -> candle_core::Result<()> {
+        let dev = candle_core::Device::Cpu;
+        let logits = Tensor::from_vec(vec![0.0f32, 0.0, 0.0], 3, &dev)?;
+        let mut proc = LogitsProcessor::from_sampling(
+            0,
+            Sampling::TopP {
+                p: 0.0,
+                temperature: 1.0,
+            },
+        );
+        let tok = proc.sample(&logits)?;
+        assert!(tok < 3);
+        Ok(())
+    }
+
+    #[test]
+    fn minp_with_min_p_le_0_behaves_like_full_sampling() -> candle_core::Result<()> {
+        let dev = candle_core::Device::Cpu;
+        let logits = Tensor::from_vec(vec![0.0f32, 0.0, 0.0], 3, &dev)?;
+        let mut proc = LogitsProcessor::from_sampling(
+            0,
+            Sampling::MinP {
+                min_p: 0.0,
+                temperature: 1.0,
+            },
+        );
+        let tok = proc.sample(&logits)?;
+        assert!(tok < 3);
+        Ok(())
+    }
+}

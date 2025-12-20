@@ -19,7 +19,9 @@ impl<M: ZeroShotClassificationModel> ZeroShotClassificationPipeline<M> {
         text: &str,
         candidate_labels: &[&str],
     ) -> anyhow::Result<Vec<ClassificationResult>> {
-        let results = self.model.predict(&self.tokenizer, text, candidate_labels)?;
+        let results = self
+            .model
+            .predict(&self.tokenizer, text, candidate_labels)?;
         Ok(results
             .into_iter()
             .map(|(label, score)| ClassificationResult { label, score })
@@ -32,7 +34,8 @@ impl<M: ZeroShotClassificationModel> ZeroShotClassificationPipeline<M> {
         text: &str,
         candidate_labels: &[&str],
     ) -> anyhow::Result<Vec<ClassificationResult>> {
-        let results = self.model
+        let results = self
+            .model
             .predict_multi_label(&self.tokenizer, text, candidate_labels)?;
         Ok(results
             .into_iter()

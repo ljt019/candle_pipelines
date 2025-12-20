@@ -14,19 +14,22 @@
 //! ## Usage Example
 //!
 //! ```rust,no_run
+//! use anyhow::Result;
 //! use transformers::pipelines::sentiment_analysis_pipeline::*;
+//! use transformers::pipelines::utils::BasePipelineBuilder;
 //!
-//! # tokio_test::block_on(async {
-//! // Create a sentiment analysis pipeline
-//! let pipeline = SentimentAnalysisPipelineBuilder::modernbert(ModernBertSize::Base)
-//!     .build()
-//!     .await?;
+//! #[tokio::main]
+//! async fn main() -> Result<()> {
+//!     // Create a sentiment analysis pipeline
+//!     let pipeline = SentimentAnalysisPipelineBuilder::modernbert(ModernBertSize::Base)
+//!         .build()
+//!         .await?;
 //!
-//! // Analyze sentiment
-//! let result = pipeline.predict("I love this product!").await?;
-//! println!("Sentiment: {} (confidence: {:.2})", result.label, result.score);
-//! # anyhow::Ok(())
-//! # });
+//!     // Analyze sentiment
+//!     let result = pipeline.predict("I love this product!")?;
+//!     println!("Sentiment: {} (confidence: {:.2})", result.label, result.score);
+//!     Ok(())
+//! }
 //! ```
 
 pub mod builder;

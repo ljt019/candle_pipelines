@@ -35,8 +35,7 @@ pub struct Tool {
     pub(crate) description: String,
     pub(crate) parameters: HashMap<String, String>,
     #[serde(skip_serializing)]
-    pub(crate) function:
-        fn(parameters: HashMap<String, String>) -> Result<String, ToolError>,
+    pub(crate) function: fn(parameters: HashMap<String, String>) -> Result<String, ToolError>,
     #[serde(skip_serializing)]
     pub(crate) error_strategy: ErrorStrategy,
     #[serde(skip_serializing)]
@@ -49,9 +48,7 @@ impl Tool {
         name: String,
         description: String,
         parameters: HashMap<String, String>,
-        function: fn(
-            parameters: HashMap<String, String>,
-        ) -> Result<String, ToolError>,
+        function: fn(parameters: HashMap<String, String>) -> Result<String, ToolError>,
         error_strategy: ErrorStrategy,
         max_retries: u32,
     ) -> Self {
@@ -71,10 +68,7 @@ impl Tool {
     }
 
     /// Execute the tool with the given parameters, returning its result.
-    pub fn call(
-        &self,
-        parameters: HashMap<String, String>,
-    ) -> Result<String, ToolError> {
+    pub fn call(&self, parameters: HashMap<String, String>) -> Result<String, ToolError> {
         (self.function)(parameters)
     }
 

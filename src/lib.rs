@@ -6,7 +6,7 @@
 //! full details and usage examples.
 
 pub mod core;
-mod loaders;
+pub mod loaders;
 pub mod models;
 pub mod pipelines;
 
@@ -24,13 +24,6 @@ pub use core::{Message, MessageVecExt};
 
 // Re-export model types for easier access
 pub use models::implementations::{
-    Gemma3Model,
-    Gemma3Size,
-    ModernBertModel,
-    ModernBertSize,
-    Qwen3Model,
-    Qwen3Size,
-    Qwen3EmbeddingModel,
-    Qwen3EmbeddingSize,
-    Qwen3RerankModel,
+    Gemma3Model, Gemma3Size, ModernBertModel, ModernBertSize, Qwen3EmbeddingModel,
+    Qwen3EmbeddingSize, Qwen3Model, Qwen3RerankModel, Qwen3Size,
 };

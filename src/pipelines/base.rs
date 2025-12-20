@@ -6,15 +6,15 @@ use tokenizers::Tokenizer;
 pub trait BaseModel {
     /// Configuration options for model initialization
     type Options: std::fmt::Debug + Clone;
-    
+
     /// Create a new model instance with the given options and device
     fn new(options: Self::Options, device: Device) -> anyhow::Result<Self>
     where
         Self: Sized;
-        
+
     /// Get a tokenizer configured for this model
     fn get_tokenizer(options: Self::Options) -> anyhow::Result<Tokenizer>;
-    
+
     /// Get the device this model is running on
     fn device(&self) -> &Device;
 }
@@ -28,5 +28,10 @@ pub trait Predict {
 /// Trait for models that can make multi-class predictions with scores
 pub trait PredictWithScores {
     /// Make predictions on the given text, returning labels with their scores
-    fn predict(&self, tokenizer: &Tokenizer, text: &str, labels: &[&str]) -> anyhow::Result<Vec<(String, f32)>>;
+    fn predict(
+        &self,
+        tokenizer: &Tokenizer,
+        text: &str,
+        labels: &[&str],
+    ) -> anyhow::Result<Vec<(String, f32)>>;
 }

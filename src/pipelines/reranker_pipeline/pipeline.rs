@@ -1,6 +1,6 @@
 use super::model::RerankModel;
-use tokenizers::Tokenizer;
 use std::sync::Arc;
+use tokenizers::Tokenizer;
 
 /// Result of reranking a single document.
 #[derive(Debug, Clone, Copy)]
@@ -22,8 +22,11 @@ where
 {
     /// Rerank a list of documents against a query.
     /// Returns a list of (document_index, relevance_score) pairs sorted by relevance.
-    pub async fn rerank(&self, query: &str, documents: &[&str]) -> anyhow::Result<Vec<RerankResult>>
-    {
+    pub async fn rerank(
+        &self,
+        query: &str,
+        documents: &[&str],
+    ) -> anyhow::Result<Vec<RerankResult>> {
         let model = Arc::clone(&self.model);
         let tokenizer = self.tokenizer.clone();
         let query_owned = query.to_owned();
@@ -37,8 +40,11 @@ where
     }
 
     /// Batch reranking for multiple queries against the same set of documents.
-    pub async fn batch_rerank(&self, queries: &[&str], documents: &[&str]) -> anyhow::Result<Vec<Vec<RerankResult>>>
-    {
+    pub async fn batch_rerank(
+        &self,
+        queries: &[&str],
+        documents: &[&str],
+    ) -> anyhow::Result<Vec<Vec<RerankResult>>> {
         let model = Arc::clone(&self.model);
         let tokenizer = self.tokenizer.clone();
         let queries_owned: Vec<String> = queries.iter().map(|q| q.to_string()).collect();
@@ -53,7 +59,12 @@ where
     }
 
     /// Get the top-k most relevant documents for a query.
-    pub async fn rerank_top_k(&self, query: &str, documents: &[&str], k: usize) -> anyhow::Result<Vec<RerankResult>> {
+    pub async fn rerank_top_k(
+        &self,
+        query: &str,
+        documents: &[&str],
+        k: usize,
+    ) -> anyhow::Result<Vec<RerankResult>> {
         let mut ranked = self.rerank(query, documents).await?;
         ranked.truncate(k);
         Ok(ranked)

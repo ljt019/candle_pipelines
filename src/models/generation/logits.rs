@@ -1,10 +1,6 @@
 use candle_core::{Result, Tensor};
 
-pub fn apply_repeat_penalty(
-    logits: &Tensor,
-    penalty: f32,
-    context: &[u32],
-) -> Result<Tensor> {
+pub fn apply_repeat_penalty(logits: &Tensor, penalty: f32, context: &[u32]) -> Result<Tensor> {
     let device = logits.device();
     let mut logits = logits.to_dtype(candle_core::DType::F32)?.to_vec1::<f32>()?;
     let mut already_seen = std::collections::HashSet::new();

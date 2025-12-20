@@ -4,8 +4,8 @@ use crate::models::generation::{
 };
 use candle_core::Tensor;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use tokenizers::Tokenizer;
+use tokio::sync::Mutex;
 
 /// Base structure containing common fields for both pipeline types
 pub struct BasePipeline<M: TextGenerationModel> {
@@ -92,8 +92,7 @@ impl<M: TextGenerationModel> BasePipeline<M> {
         }
 
         // Safety: there is always at least one chunk, so last_logits is Some
-        let mut next_token =
-            logits_processor.sample(&last_logits.expect("missing logits"))?;
+        let mut next_token = logits_processor.sample(&last_logits.expect("missing logits"))?;
         generated_tokens.push(next_token);
 
         // Generate autoregressively

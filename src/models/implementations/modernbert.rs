@@ -693,10 +693,7 @@ impl FillMaskModernBertModel {
             .is_some_and(|ext| ext == "safetensors")
         {
             unsafe { VarBuilder::from_mmaped_safetensors(&[weights_filename], dtype, &device)? }
-        } else if weights_filename
-            .extension()
-            .is_some_and(|ext| ext == "bin")
-        {
+        } else if weights_filename.extension().is_some_and(|ext| ext == "bin") {
             VarBuilder::from_pth(&weights_filename, dtype, &device)?
         } else {
             anyhow::bail!("Unsupported weight file format: {:?}", weights_filename);
@@ -758,9 +755,7 @@ impl FillMaskModernBertModel {
     }
 }
 
-impl crate::pipelines::fill_mask_pipeline::model::FillMaskModel
-    for FillMaskModernBertModel
-{
+impl crate::pipelines::fill_mask_pipeline::model::FillMaskModel for FillMaskModernBertModel {
     type Options = ModernBertSize;
 
     fn new(options: Self::Options, device: Device) -> anyhow::Result<Self> {
@@ -769,6 +764,66 @@ impl crate::pipelines::fill_mask_pipeline::model::FillMaskModel
 
     fn predict(&self, tokenizer: &Tokenizer, text: &str) -> AnyhowResult<String> {
         self.predict(tokenizer, text)
+    }
+
+    fn predict_top_k(
+        &self,
+        tokenizer: &Tokenizer,
+        text: &str,
+        k: usize,
+    ) -> AnyhowResult<Vec<crate::pipelines::fill_mask_pipeline::pipeline::FillMaskPrediction>> {
+        use crate::pipelines::fill_mask_pipeline::pipeline::FillMaskPrediction;
+
+        if k == 0 {
+            return Ok(vec![]);
+        }
+
+        let encoding = tokenizer
+            .encode(text, true)
+            .map_err(|e| E::msg(format!("Tokenization error: {e}")))?;
+        let mask_id = tokenizer.token_to_id("[MASK]").unwrap_or(103);
+        let mask_index = encoding
+            .get_ids()
+            .iter()
+            .position(|&id| id == mask_id)
+            .ok_or_else(|| E::msg("No [MASK] token found in input"))?;
+
+        let attention_mask_vals = encoding.get_attention_mask();
+
+        let input_ids = Tensor::new(encoding.get_ids(), &self.device)?.unsqueeze(0)?;
+        let attention_mask = Tensor::new(attention_mask_vals, &self.device)?.unsqueeze(0)?;
+
+        let logits = self.model.forward(&input_ids, &attention_mask)?;
+        let logits = logits.squeeze(0)?.i((mask_index, ..))?;
+        let probs = softmax(&logits, D::Minus1)?;
+
+        let probs_vec = probs.to_vec1::<f32>()?;
+        if probs_vec.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let mut idxs: Vec<usize> = (0..probs_vec.len()).collect();
+        idxs.sort_by(|&i, &j| probs_vec[j].total_cmp(&probs_vec[i]));
+        idxs.truncate(std::cmp::min(k, idxs.len()));
+
+        let mut out = Vec::with_capacity(idxs.len());
+        for idx in idxs {
+            let token_id = idx as u32;
+            let token_str = tokenizer
+                .decode(&[token_id], true)
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            if token_str.is_empty() {
+                continue;
+            }
+            out.push(FillMaskPrediction {
+                word: token_str,
+                score: probs_vec[idx],
+            });
+        }
+
+        Ok(out)
     }
 
     fn get_tokenizer(options: Self::Options) -> AnyhowResult<Tokenizer> {
@@ -854,10 +909,7 @@ impl ZeroShotModernBertModel {
             .is_some_and(|ext| ext == "safetensors")
         {
             unsafe { VarBuilder::from_mmaped_safetensors(&[weights_filename], dtype, &device)? }
-        } else if weights_filename
-            .extension()
-            .is_some_and(|ext| ext == "bin")
-        {
+        } else if weights_filename.extension().is_some_and(|ext| ext == "bin") {
             VarBuilder::from_pth(&weights_filename, dtype, &device)?
         } else {
             anyhow::bail!("Unsupported weight file format: {:?}", weights_filename);
@@ -1129,10 +1181,7 @@ impl SentimentModernBertModel {
             .is_some_and(|ext| ext == "safetensors")
         {
             unsafe { VarBuilder::from_mmaped_safetensors(&[weights_filename], dtype, &device)? }
-        } else if weights_filename
-            .extension()
-            .is_some_and(|ext| ext == "bin")
-        {
+        } else if weights_filename.extension().is_some_and(|ext| ext == "bin") {
             VarBuilder::from_pth(&weights_filename, dtype, &device)?
         } else {
             anyhow::bail!("Unsupported weight file format: {:?}", weights_filename);
@@ -1161,8 +1210,7 @@ impl SentimentModernBertModel {
 
         // Prepare tensors
         let input_ids_tensor = Tensor::new(token_ids, &self.device)?.unsqueeze(0)?;
-        let attention_mask_tensor =
-            Tensor::new(attention_mask_vals, &self.device)?.unsqueeze(0)?;
+        let attention_mask_tensor = Tensor::new(attention_mask_vals, &self.device)?.unsqueeze(0)?;
 
         // Forward pass
         let output_logits = self
@@ -1216,6 +1264,54 @@ impl crate::pipelines::sentiment_analysis_pipeline::model::SentimentAnalysisMode
 
     fn predict(&self, tokenizer: &Tokenizer, text: &str) -> AnyhowResult<String> {
         self.predict(tokenizer, text)
+    }
+
+    fn predict_with_score(
+        &self,
+        tokenizer: &Tokenizer,
+        text: &str,
+    ) -> AnyhowResult<crate::pipelines::sentiment_analysis_pipeline::pipeline::SentimentResult>
+    {
+        use crate::pipelines::sentiment_analysis_pipeline::pipeline::SentimentResult;
+
+        // Tokenize
+        let tokens = tokenizer
+            .encode(text, true)
+            .map_err(|e| E::msg(format!("Tokenization error: {e}")))?;
+        let token_ids = tokens.get_ids();
+        let attention_mask_vals = tokens.get_attention_mask();
+
+        // Prepare tensors
+        let input_ids_tensor = Tensor::new(token_ids, &self.device)?.unsqueeze(0)?;
+        let attention_mask_tensor = Tensor::new(attention_mask_vals, &self.device)?.unsqueeze(0)?;
+
+        // Forward pass
+        let output_logits = self
+            .model
+            .forward(&input_ids_tensor, &attention_mask_tensor)?;
+
+        // Predicted class id
+        let pred_id = output_logits
+            .argmax(D::Minus1)?
+            .squeeze(0)?
+            .to_scalar::<u32>()?;
+
+        // Confidence via softmax
+        let probs = softmax(&output_logits, D::Minus1)?;
+        let probs_vec = probs.squeeze(0)?.to_vec1::<f32>()?;
+        let score = probs_vec.get(pred_id as usize).copied().unwrap_or(0.0);
+
+        let label = self
+            .id2label
+            .get(&pred_id.to_string())
+            .ok_or_else(|| {
+                E::msg(format!(
+                    "Predicted ID '{pred_id}' not found in id2label map"
+                ))
+            })?
+            .clone();
+
+        Ok(SentimentResult { label, score })
     }
 
     fn get_tokenizer(options: Self::Options) -> AnyhowResult<Tokenizer> {

@@ -1,6 +1,6 @@
 use anyhow::Result;
-use transformers::pipelines::text_generation_pipeline::*;
 use std::io::Write;
+use transformers::pipelines::text_generation_pipeline::*;
 
 #[tool(on_error = ErrorStrategy::Fail, retries = 5)]
 /// Get the weather for a given city.
@@ -32,12 +32,13 @@ async fn main() -> Result<()> {
 
     println!("Pipeline built successfully.");
 
-    pipeline.register_tools(tools![get_temperature, get_humidity]).await?;
+    pipeline
+        .register_tools(tools![get_temperature, get_humidity])
+        .await?;
 
-    let mut stream =
-        pipeline
-            .completion_stream_with_tools("What's the temp and humidity like in Tokyo?")
-            .await?;
+    let mut stream = pipeline
+        .completion_stream_with_tools("What's the temp and humidity like in Tokyo?")
+        .await?;
 
     println!("\n=== Generation with Both Tools ===");
 
@@ -48,10 +49,9 @@ async fn main() -> Result<()> {
 
     pipeline.unregister_tools(tools![get_temperature]).await?;
 
-    let mut stream =
-        pipeline
-            .completion_stream_with_tools("What's the temp and humidity like in Tokyo?")
-            .await?;
+    let mut stream = pipeline
+        .completion_stream_with_tools("What's the temp and humidity like in Tokyo?")
+        .await?;
 
     println!("\n\n=== Generation with Only Humidity Tool ===");
 

@@ -16,16 +16,22 @@
 //! ## Usage Example
 //!
 //! ```rust,no_run
-//! use transformers::loaders::{TokenizerLoader, GgufModelLoader};
+//! use anyhow::Result;
+//! use transformers::loaders::{GgufModelLoader, TokenizerLoader};
 //!
-//! // Load a tokenizer
-//! let tokenizer_loader = TokenizerLoader::new("microsoft/DialoGPT-small", "tokenizer.json");
-//! let tokenizer = tokenizer_loader.load().await?;
+//! #[tokio::main]
+//! async fn main() -> Result<()> {
+//!     // Load a tokenizer
+//!     let tokenizer_loader =
+//!         TokenizerLoader::new("microsoft/DialoGPT-small", "tokenizer.json");
+//!     let _tokenizer = tokenizer_loader.load().await?;
 //!
-//! // Load model weights
-//! let model_loader = GgufModelLoader::new("microsoft/DialoGPT-small", "model.gguf");
-//! let (file, content) = model_loader.load().await?;
-//! # Ok::<(), anyhow::Error>(())
+//!     // Load model weights
+//!     let model_loader = GgufModelLoader::new("microsoft/DialoGPT-small", "model.gguf");
+//!     let (_file, _content) = model_loader.load().await?;
+//!
+//!     Ok(())
+//! }
 //! ```
 //!
 //! All loaders include built-in retry logic to handle temporary network issues
@@ -109,7 +115,6 @@ impl TokenizerLoader {
     }
 }
 
-
 pub struct GenerationConfigLoader {
     pub generation_config_file_loader: HfLoader,
 }
@@ -137,13 +142,9 @@ impl GenerationConfigLoader {
     }
 
     pub async fn load(&self) -> anyhow::Result<GenerationConfig> {
-        let generation_config_file_path = self
-            .generation_config_file_loader
-            .load()
-            .await?;
+        let generation_config_file_path = self.generation_config_file_loader.load().await?;
 
-        let generation_config_content =
-            std::fs::read_to_string(generation_config_file_path)?;
+        let generation_config_content = std::fs::read_to_string(generation_config_file_path)?;
 
         let raw: RawGenerationConfig = serde_json::from_str(&generation_config_content)?;
 
@@ -153,9 +154,10 @@ impl GenerationConfigLoader {
                 .ok_or_else(|| anyhow::anyhow!("Invalid EOS token ID"))?],
             Some(serde_json::Value::Array(arr)) => arr
                 .into_iter()
-                .map(|v| v
-                    .as_u64()
-                    .ok_or_else(|| anyhow::anyhow!("Invalid EOS token ID in array")))
+                .map(|v| {
+                    v.as_u64()
+                        .ok_or_else(|| anyhow::anyhow!("Invalid EOS token ID in array"))
+                })
                 .collect::<Result<Vec<_>, _>>()?,
             _ => Vec::new(),
         };

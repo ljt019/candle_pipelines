@@ -1,5 +1,5 @@
 use crate::Message;
-use candle_core::Tensor;
+use candle_core::{Device, Tensor};
 
 // Re-export tool-related types
 pub use super::tools::{ErrorStrategy, IntoTool, Tool, ToolCalling};
@@ -33,7 +33,7 @@ pub trait TextGenerationModel {
     /// so that asynchronous streams capturing it can be moved across threads.
     type Context: LanguageModelContext + Send;
 
-    async fn new(options: Self::Options) -> anyhow::Result<Self>
+    async fn new(options: Self::Options, device: Device) -> anyhow::Result<Self>
     where
         Self: Sized;
 

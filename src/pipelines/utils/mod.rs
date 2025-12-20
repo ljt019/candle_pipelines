@@ -1,5 +1,5 @@
-use candle_core::{CudaDevice, Device};
 use crate::core::ModelOptions;
+use candle_core::{CudaDevice, Device};
 
 // Re-export builder utilities
 pub mod builder;
@@ -28,8 +28,7 @@ pub fn load_device() -> anyhow::Result<Device> {
 }
 
 /// Request for a specific device, used by pipeline builders.
-#[derive(Clone)]
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub enum DeviceRequest {
     /// Use CUDA if available, otherwise CPU (default behavior).
     #[default]
@@ -41,7 +40,6 @@ pub enum DeviceRequest {
     /// Provide an already constructed device.
     Explicit(Device),
 }
-
 
 impl DeviceRequest {
     /// Resolve the request into an actual [`Device`].
@@ -83,4 +81,3 @@ pub trait DeviceSelectable: Sized {
 pub fn build_cache_key<O: ModelOptions>(options: &O, device: &Device) -> String {
     format!("{}-{:?}", options.cache_key(), device.location())
 }
-
