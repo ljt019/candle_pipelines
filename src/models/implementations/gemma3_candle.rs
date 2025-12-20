@@ -8,6 +8,7 @@ use minijinja::UndefinedBehavior;
 use minijinja::{context, Environment};
 use minijinja_contrib::{add_to_environment, pycompat};
 use tokenizers::Tokenizer;
+use tokio::fs;
 
 use crate::core::GenerationConfig;
 use crate::loaders::{GenerationConfigLoader, GgufModelLoader, HfLoader, TokenizerLoader};
@@ -131,7 +132,7 @@ impl Gemma3Model {
     async fn load_chat_template_env(repo_id: &str) -> anyhow::Result<Arc<Environment<'static>>> {
         let tokenizer_config_loader = HfLoader::new(repo_id, "tokenizer_config.json");
         let tokenizer_config_path = tokenizer_config_loader.load().await?;
-        let tokenizer_config_content = std::fs::read_to_string(tokenizer_config_path)?;
+        let tokenizer_config_content = fs::read_to_string(tokenizer_config_path).await?;
         let config_json: serde_json::Value = serde_json::from_str(&tokenizer_config_content)?;
 
         let chat_template_str = config_json["chat_template"]
@@ -144,8 +145,7 @@ impl Gemma3Model {
         env.set_unknown_method_callback(pycompat::unknown_method_callback);
         env.add_filter("tojson", minijinja::filters::tojson);
 
-        let chat_template_static = Box::leak(chat_template_str.to_string().into_boxed_str());
-        env.add_template("chat", chat_template_static)?;
+        env.add_template_owned("chat", chat_template_str.to_string())?;
 
         Ok(Arc::new(env))
     }
@@ -171,6 +171,7 @@ impl Gemma3Model {
     pub async fn from_gguf<R: Read + Seek>(
         reader: &mut R,
         device: &Device,
+        size: Gemma3Size,
     ) -> anyhow::Result<Self> {
         let content = gguf_file::Content::read(reader)?;
         let info = Self::parse_metadata(&content, device);
@@ -178,7 +179,7 @@ impl Gemma3Model {
             content, reader, device,
         )?);
 
-        let tokenizer_repo_id = "google/gemma-3-1b-it".to_string();
+        let tokenizer_repo_id = size.config_repo_id().to_string();
         let generation_config =
             GenerationConfigLoader::new(&tokenizer_repo_id, "generation_config.json")
                 .load()
