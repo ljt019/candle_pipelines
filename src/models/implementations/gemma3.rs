@@ -94,20 +94,20 @@ impl Gemma3Model {
         let num_layers = content
             .metadata
             .get("gemma3.block_count")
-            .and_then(|v| v.to_u32())
+            .and_then(|v| v.to_u32().ok())
             .ok_or_else(|| anyhow::anyhow!("Missing critical metadata: gemma3.block_count"))?
             as usize;
 
         let max_seq_len = content
             .metadata
             .get("gemma3.context_length")
-            .and_then(|v| v.to_u32())
+            .and_then(|v| v.to_u32().ok())
             .unwrap_or(131_072) as usize;
 
         let dtype = content
             .metadata
             .get("general.dtype")
-            .and_then(|v| v.to_u32())
+            .and_then(|v| v.to_u32().ok())
             .and_then(|v| match v {
                 0 => Some(DType::F32),
                 1 => Some(DType::F16),
@@ -118,8 +118,8 @@ impl Gemma3Model {
         let target_device = content
             .metadata
             .get("general.architecture")
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.to_string());
+            .and_then(|v| v.to_string().ok())
+            .cloned();
 
         Ok(ModelInfo {
             num_layers,

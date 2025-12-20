@@ -5,17 +5,38 @@
 //! min-p filtering).
 
 use super::params::GenerationParams;
-use candle_core::D;
 use candle_core::{DType, Error, Tensor};
 use candle_transformers::generation::{LogitsProcessor as CandleLogitsProcessor, Sampling};
 use rand::{distr::Distribution, SeedableRng};
 
-#[derive(Clone, Debug)]
 pub struct LogitsProcessor {
     inner: CandleLogitsProcessor,
     sampling: Sampling,
     rng: rand::rngs::StdRng,
     min_p: Option<f64>,
+    seed: u64,
+}
+
+impl Clone for LogitsProcessor {
+    fn clone(&self) -> Self {
+        Self {
+            inner: CandleLogitsProcessor::from_sampling(self.seed, self.sampling.clone()),
+            sampling: self.sampling.clone(),
+            rng: self.rng.clone(),
+            min_p: self.min_p,
+            seed: self.seed,
+        }
+    }
+}
+
+impl std::fmt::Debug for LogitsProcessor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LogitsProcessor")
+            .field("sampling", &self.sampling)
+            .field("min_p", &self.min_p)
+            .field("seed", &self.seed)
+            .finish_non_exhaustive()
+    }
 }
 
 impl LogitsProcessor {
@@ -25,6 +46,7 @@ impl LogitsProcessor {
             sampling,
             rng: rand::rngs::StdRng::seed_from_u64(seed),
             min_p,
+            seed,
         }
     }
 
