@@ -23,7 +23,4 @@ pub use tool_macro::tool;
 pub use core::{Message, MessageVecExt};
 
 // Re-export model types for easier access
-pub use models::implementations::{
-    Gemma3Model, Gemma3Size, ModernBertModel, ModernBertSize, Qwen3EmbeddingModel,
-    Qwen3EmbeddingSize, Qwen3Model, Qwen3RerankModel, Qwen3Size,
-};
+pub use models::implementations::{Gemma3Model, Gemma3Size, ModernBertModel, ModernBertSize, Qwen3Model, Qwen3Size};

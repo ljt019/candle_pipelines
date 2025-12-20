@@ -93,18 +93,6 @@ ModernBERT powers three specialized analysis tasks with shared architecture:
 
 [→ View on HuggingFace](https://huggingface.co/MoritzLaurer/ModernBERT-base-zeroshot-v2.0)
 
-#### **Reranking Pipeline**
-*Rank documents by relevance to a query*
-
-```markdown
- Available Sizes:
-├── 0.6B
-├── 4B
-└── 8B
-```
-
-[→ View on HuggingFace](https://huggingface.co/collections/Qwen/qwen3-rerankers)
-
 ---
 
 ***Technical Note**: All ModernBERT pipelines share the same backbone architecture, loading task-specific finetuned weights as needed.*
@@ -403,26 +391,6 @@ fn main() -> Result<()> {
     // - reading: 0.9567
     // - science: 0.7821
     
-    Ok(())
-}
-```
-
-### Reranking (Qwen3)
-
-```rust
-use transformers::pipelines::reranker_pipeline::{RerankPipelineBuilder, Qwen3RerankSize};
-use anyhow::Result;
-
-#[tokio::main]
-async fn main() -> Result<()> {
-    let pipeline = RerankPipelineBuilder::qwen3(Qwen3RerankSize::Size0_6B)
-        .cpu()
-        .build()
-        .await?;
-
-    let docs = ["Rust is a systems programming language.", "Cats are cute."];
-    let ranked = pipeline.rerank("Tell me about Rust", &docs).await?;
-    println!("Best match score: {:.4}", ranked[0].score);
     Ok(())
 }
 ```

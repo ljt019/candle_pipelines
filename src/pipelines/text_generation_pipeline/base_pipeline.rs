@@ -160,7 +160,7 @@ impl<M: TextGenerationModel> BasePipeline<M> {
             let params = gen_params.lock().await.clone();
             let eos_tokens = model.lock().await.get_eos_tokens();
             if eos_tokens.is_empty() {
-                anyhow::bail!("Model provided no EOS tokens; cannot stream text generation");
+                Err(anyhow::anyhow!("Model provided no EOS tokens; cannot stream text generation"))?;
             }
             const CHUNK_SIZE: usize = 64;
 
