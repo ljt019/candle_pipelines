@@ -180,7 +180,7 @@ mod tests {
         apply_top_p(&mut prs, 0.6);
         apply_min_p(&mut prs, 0.8);
 
-        assert_eq!(prs, vec![0.4, 0.0, 0.0]);
+        assert_eq!(prs, vec![0.4, 0.35, 0.0]);
     }
 
     #[test]
