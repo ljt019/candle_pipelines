@@ -5,19 +5,25 @@
 //! min-p filtering).
 
 use super::params::GenerationParams;
-use candle_core::Tensor;
+use candle_core::D;
+use candle_core::{DType, Error, Tensor};
 use candle_transformers::generation::{LogitsProcessor as CandleLogitsProcessor, Sampling};
+use rand::{distr::Distribution, SeedableRng};
 
 #[derive(Clone, Debug)]
 pub struct LogitsProcessor {
     inner: CandleLogitsProcessor,
+    sampling: Sampling,
+    rng: rand::rngs::StdRng,
     min_p: Option<f64>,
 }
 
 impl LogitsProcessor {
     pub fn new(seed: u64, sampling: Sampling, min_p: Option<f64>) -> Self {
         Self {
-            inner: CandleLogitsProcessor::from_sampling(seed, sampling),
+            inner: CandleLogitsProcessor::from_sampling(seed, sampling.clone()),
+            sampling,
+            rng: rand::rngs::StdRng::seed_from_u64(seed),
             min_p,
         }
     }
@@ -31,13 +37,66 @@ impl LogitsProcessor {
         logits: &Tensor,
         f: impl FnOnce(&mut [f32]),
     ) -> candle_core::Result<u32> {
-        let min_p = self.min_p;
-        self.inner.sample_f(logits, |prs| {
-            if let Some(min_p) = min_p {
-                apply_min_p(prs, min_p as f32);
+        if self.min_p.is_none() {
+            return self.inner.sample_f(logits, f);
+        }
+
+        self.sample_with_min_p(logits, f)
+    }
+
+    fn sample_with_min_p(
+        &mut self,
+        logits: &Tensor,
+        f: impl FnOnce(&mut [f32]),
+    ) -> candle_core::Result<u32> {
+        let min_p = self.min_p.unwrap_or(0.0) as f32;
+        let logits = logits.to_dtype(DType::F32)?;
+
+        let prs = |temperature: f64| -> candle_core::Result<Vec<f32>> {
+            let logits = (&logits / temperature)?;
+            let prs = candle_nn::ops::softmax_last_dim(&logits)?;
+            let mut prs = prs.to_vec1()?;
+            f(&mut prs);
+            Ok(prs)
+        };
+
+        let next_token = match &self.sampling {
+            Sampling::ArgMax => logits.argmax(candle_core::D::Minus1)?.to_scalar::<u32>()?,
+            Sampling::GumbelSoftmax { temperature } => {
+                let sampled = candle_nn::sampling::gumbel_softmax(
+                    &logits,
+                    *temperature,
+                    candle_core::D::Minus1,
+                )?;
+                sampled.to_scalar::<u32>()?
             }
-            f(prs);
-        })
+            Sampling::All { temperature } => {
+                let mut prs = prs(*temperature)?;
+                apply_min_p(&mut prs, min_p);
+                sample_multinomial(&prs, &mut self.rng)?
+            }
+            Sampling::TopP { p, temperature } => {
+                let mut prs = prs(*temperature)?;
+                apply_top_p(&mut prs, *p as f32);
+                apply_min_p(&mut prs, min_p);
+                sample_multinomial(&prs, &mut self.rng)?
+            }
+            Sampling::TopK { k, temperature } => {
+                let mut prs = prs(*temperature)?;
+                apply_top_k(&mut prs, *k);
+                apply_min_p(&mut prs, min_p);
+                sample_multinomial(&prs, &mut self.rng)?
+            }
+            Sampling::TopKThenTopP { k, p, temperature } => {
+                let mut prs = prs(*temperature)?;
+                apply_top_k(&mut prs, *k);
+                apply_top_p(&mut prs, *p as f32);
+                apply_min_p(&mut prs, min_p);
+                sample_multinomial(&prs, &mut self.rng)?
+            }
+        };
+
+        Ok(next_token)
     }
 }
 
@@ -54,6 +113,43 @@ fn apply_min_p(prs: &mut [f32], min_p: f32) {
             *p = 0.0;
         }
     }
+}
+
+fn apply_top_k(prs: &mut [f32], top_k: usize) {
+    if top_k >= prs.len() {
+        return;
+    }
+
+    let mut argsort_indices = (0..prs.len()).collect::<Vec<_>>();
+    let (indices, _, _) =
+        argsort_indices.select_nth_unstable_by(top_k, |&i, &j| prs[j].total_cmp(&prs[i]));
+    for index in indices.iter().copied().skip(top_k) {
+        prs[index] = 0.0;
+    }
+}
+
+fn apply_top_p(prs: &mut [f32], top_p: f32) {
+    if top_p <= 0.0 || top_p >= 1.0 {
+        return;
+    }
+
+    let mut argsort_indices = (0..prs.len()).collect::<Vec<_>>();
+    argsort_indices.sort_by(|&i, &j| prs[j].total_cmp(&prs[i]));
+
+    let mut cumsum = 0.0;
+    for index in argsort_indices {
+        if cumsum >= top_p {
+            prs[index] = 0.0;
+        } else {
+            cumsum += prs[index];
+        }
+    }
+}
+
+fn sample_multinomial(prs: &Vec<f32>, rng: &mut rand::rngs::StdRng) -> candle_core::Result<u32> {
+    let distr = rand::distr::weighted::WeightedIndex::new(prs).map_err(Error::wrap)?;
+    let next_token = distr.sample(rng) as u32;
+    Ok(next_token)
 }
 
 /// Initializes a LogitsProcessor based on sampling parameters.
@@ -75,5 +171,15 @@ mod tests {
         let tok = proc.sample(&logits)?;
         assert!(tok < 3);
         Ok(())
+    }
+
+    #[test]
+    fn minp_runs_after_top_filters() {
+        let mut prs = vec![0.4f32, 0.35, 0.25];
+        apply_top_k(&mut prs, 2);
+        apply_top_p(&mut prs, 0.6);
+        apply_min_p(&mut prs, 0.8);
+
+        assert_eq!(prs, vec![0.4, 0.0, 0.0]);
     }
 }
