@@ -1,6 +1,6 @@
 use super::params::GenerationParams;
+use crate::models::{Gemma3Model, Gemma3Size, LlamaModel, LlamaSize, Qwen3Model, Qwen3Size};
 use crate::pipelines::cache::{global_cache, ModelOptions};
-use crate::models::{Gemma3Model, Gemma3Size, Qwen3Model, Qwen3Size};
 use crate::pipelines::utils::{build_cache_key, DeviceRequest, DeviceSelectable};
 
 use super::model::TextGenerationModel;
@@ -131,6 +131,12 @@ impl TextGenerationPipelineBuilder<Qwen3Model> {
 
 impl TextGenerationPipelineBuilder<Gemma3Model> {
     pub fn gemma3(size: Gemma3Size) -> Self {
+        Self::new(size)
+    }
+}
+
+impl TextGenerationPipelineBuilder<LlamaModel> {
+    pub fn llama(size: LlamaSize) -> Self {
         Self::new(size)
     }
 }

@@ -9,7 +9,7 @@ pub mod pipelines;
 
 pub use message::{Message, MessageVecExt, Role};
 pub use models::{
-    FillMaskModernBertModel, Gemma3Model, Gemma3Size, ModernBertSize, Qwen3Model, Qwen3Size,
-    SentimentModernBertModel, ZeroShotModernBertModel,
+    FillMaskModernBertModel, Gemma3Model, Gemma3Size, LlamaModel, LlamaSize, ModernBertSize,
+    Qwen3Model, Qwen3Size, SentimentModernBertModel, ZeroShotModernBertModel,
 };
 pub use tool_macro::tool;

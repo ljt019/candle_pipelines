@@ -51,7 +51,7 @@ pub mod streaming;
 pub mod tools;
 pub mod xml_pipeline;
 
-pub use crate::models::{Gemma3Size, Qwen3Size};
+pub use crate::models::{Gemma3Size, LlamaSize, Qwen3Size};
 pub use crate::tools;
 pub use builder::TextGenerationPipelineBuilder;
 pub use params::GenerationParams;

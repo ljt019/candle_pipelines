@@ -59,3 +59,16 @@ async fn text_generation_params_update() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn text_generation_llama() -> anyhow::Result<()> {
+    let pipeline = TextGenerationPipelineBuilder::llama(LlamaSize::Size1B)
+        .cuda_device(0)
+        .seed(7)
+        .max_len(8)
+        .build()
+        .await?;
+
+    let out = pipeline.completion("Transformers are").await?;
+    assert!(!out.trim().is_empty());
+    Ok(())
+}
