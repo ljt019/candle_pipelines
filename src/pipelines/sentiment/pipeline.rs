@@ -23,9 +23,7 @@ impl<M: SentimentAnalysisModel> SentimentAnalysisPipeline<M> {
         &self,
         texts: &[&str],
     ) -> anyhow::Result<Vec<anyhow::Result<SentimentResult>>> {
-        self.model
-            .predict_with_score_batch(&self.tokenizer, texts)
-            .map(|results| results)
+        self.model.predict_with_score_batch(&self.tokenizer, texts)
     }
 
     pub fn device(&self) -> &candle_core::Device {

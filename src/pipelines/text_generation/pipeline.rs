@@ -90,12 +90,16 @@ impl<M: TextGenerationModel + Send> TextGenerationPipeline<M> {
     }
 
     /// Generate chat completions for a batch of message histories.
+    ///
+    /// Each conversation is processed independently with a fresh context.
+    /// This ensures no KV cache or state is shared between batch items.
     pub async fn chat_batch(
         &self,
         conversations: &[&[crate::Message]],
     ) -> anyhow::Result<Vec<anyhow::Result<String>>> {
         let mut outputs = Vec::with_capacity(conversations.len());
         for messages in conversations {
+            // Explicitly reset context to ensure independence between batch items
             self.base.context.lock().await.reset();
             self.base.last_processed_tokens.lock().await.clear();
             outputs.push(self.message_completion_internal(messages).await);

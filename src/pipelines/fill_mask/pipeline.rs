@@ -31,9 +31,9 @@ impl<M: FillMaskModel> FillMaskPipeline<M> {
         Ok(batched
             .into_iter()
             .map(|result| {
-                result.and_then(|mut preds| {
+                result.and_then(|preds| {
                     preds
-                        .drain(..)
+                        .into_iter()
                         .next()
                         .ok_or_else(|| anyhow::anyhow!("No predictions returned"))
                 })
