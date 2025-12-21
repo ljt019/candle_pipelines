@@ -121,6 +121,16 @@ fn returns_result(output: &ReturnType) -> bool {
 /// }
 /// ```
 ///
+/// Async tools are supported, making it easy to perform network or filesystem I/O:
+/// ```ignore
+/// use transformers::Result;
+///
+/// #[tool]
+/// async fn fetch_weather(city: String) -> Result<String> {
+///     Ok(format!("Weather in {city} is sunny"))
+/// }
+/// ```
+///
 /// Tool with custom error type (error is converted via `Display`):
 /// ```ignore
 /// #[derive(Debug, thiserror::Error)]
@@ -162,6 +172,7 @@ pub fn tool(args: TokenStream, item: TokenStream) -> TokenStream {
     let tool_builder_name = format_ident!("__{}_tool_builder", fn_name_ident);
     let params_struct_name = format_ident!("__{}_ToolParams", fn_name_ident);
     let schema_fn_name = format_ident!("__{}_tool_schema", fn_name_ident);
+    let is_async = input_fn.sig.asyncness.is_some();
 
     // Doc comments become description.
     let description = extract_doc(&input_fn.attrs);
@@ -186,27 +197,37 @@ pub fn tool(args: TokenStream, item: TokenStream) -> TokenStream {
         }
     }
 
+    let call_invocation = if is_async {
+        quote! { #fn_name_ident( #(#param_idents),* ).await }
+    } else {
+        quote! { #fn_name_ident( #(#param_idents),* ) }
+    };
+
     // Generate different wrapper logic based on return type
     let wrapper_body = if is_result {
         quote! {
-            let parsed: #params_struct_name = serde_json::from_value(parameters)
-                .map_err(|e| transformers::TransformersError::ToolFormat(e.to_string()))?;
-            let #params_struct_name { #( #param_idents ),* } = parsed;
-            let result = #fn_name_ident( #(#param_idents),* );
+            Box::pin(async move {
+                let parsed: #params_struct_name = serde_json::from_value(parameters)
+                    .map_err(|e| transformers::TransformersError::ToolFormat(e.to_string()))?;
+                let #params_struct_name { #( #param_idents ),* } = parsed;
+                let result = #call_invocation;
 
-            // Convert the result to the expected type
-            match result {
-                Ok(s) => Ok(s),
-                Err(e) => Err(transformers::TransformersError::ToolMessage(e.to_string())),
-            }
+                // Convert the result to the expected type
+                match result {
+                    Ok(s) => Ok(s),
+                    Err(e) => Err(transformers::TransformersError::ToolMessage(e.to_string())),
+                }
+            })
         }
     } else {
         quote! {
-            let parsed: #params_struct_name = serde_json::from_value(parameters)
-                .map_err(|e| transformers::TransformersError::ToolFormat(e.to_string()))?;
-            let #params_struct_name { #( #param_idents ),* } = parsed;
-            let result = #fn_name_ident( #(#param_idents),* );
-            Ok(result)
+            Box::pin(async move {
+                let parsed: #params_struct_name = serde_json::from_value(parameters)
+                    .map_err(|e| transformers::TransformersError::ToolFormat(e.to_string()))?;
+                let #params_struct_name { #( #param_idents ),* } = parsed;
+                let result = #call_invocation;
+                Ok(result)
+            })
         }
     };
 
@@ -224,7 +245,7 @@ pub fn tool(args: TokenStream, item: TokenStream) -> TokenStream {
 
         // Automatically generated wrapper that matches the `Tool` function signature.
         #[doc(hidden)]
-        fn #wrapper_name(parameters: serde_json::Value) -> transformers::Result<String> {
+        fn #wrapper_name(parameters: serde_json::Value) -> transformers::pipelines::text_generation::ToolFuture {
             #wrapper_body
         }
 

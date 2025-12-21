@@ -177,6 +177,7 @@ Using the tools is as easy as calling `completion_with_tools` after having tools
 ```rust
 use transformers::pipelines::text_generation::TextGenerationPipelineBuilder;
 use transformers::pipelines::text_generation::Messages;
+use transformers::Result;
 
 // 1. Define the tools
 #[tool]
@@ -204,6 +205,19 @@ fn main() -> anyhow::Result<()> {
     println!("{}", completion);
 
     Ok(())
+}
+```
+
+Tools can also be asynchronous, allowing you to perform network or file I/O directly inside the handler:
+
+```rust
+use transformers::Result;
+
+#[tool]
+/// Echoes a message after waiting for a bit.
+async fn delayed_echo(message: String) -> Result<String> {
+    tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    Ok(message)
 }
 ```
 

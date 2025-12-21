@@ -343,7 +343,7 @@ impl<M: TextGenerationModel + ToolCalling + Send> TextGenerationPipeline<M> {
             let mut attempts = 0u32;
 
             loop {
-                match tool.call(args.clone()) {
+                match tool.call(args.clone()).await {
                     Ok(result) => {
                         // Ensure tool result content ends with exactly one newline
                         let trimmed_result = result.trim_end_matches('\n');

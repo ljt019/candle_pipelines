@@ -509,7 +509,7 @@ impl ToggleableReasoning for Qwen3Model {
     }
 }
 
-use crate::pipelines::text_generation::model::Tool;
+use crate::pipelines::text_generation::model::{Tool, ToolFuture};
 
 impl ToolCalling for Qwen3Model {
     fn register_tool(&mut self, tool: Tool) -> Result<()> {
@@ -538,17 +538,17 @@ impl ToolCalling for Qwen3Model {
         self.tools.clone()
     }
 
-    fn call_tool(
-        &mut self,
-        tool_name: String,
-        parameters: serde_json::Value,
-    ) -> crate::Result<String> {
-        if let Some(tool) = self.tools.iter().find(|t| t.name() == tool_name) {
-            tool.call(parameters)
-        } else {
-            Err(TransformersError::ToolMessage(format!(
-                "Tool '{tool_name}' is not registered"
-            )))
-        }
+    fn call_tool(&mut self, tool_name: String, parameters: serde_json::Value) -> ToolFuture {
+        let maybe_tool = self.tools.iter().find(|t| t.name() == tool_name).cloned();
+
+        Box::pin(async move {
+            if let Some(tool) = maybe_tool {
+                tool.call(parameters).await
+            } else {
+                Err(TransformersError::ToolMessage(format!(
+                    "Tool '{tool_name}' is not registered"
+                )))
+            }
+        })
     }
 }

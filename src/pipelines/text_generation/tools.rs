@@ -1,4 +1,6 @@
 use crate::{Result, TransformersError};
+use futures::future::BoxFuture;
+use std::sync::Arc;
 
 /// Strategy for handling tool errors.
 #[derive(Debug, Clone)]
@@ -20,21 +22,37 @@ pub trait ToolCalling {
     fn unregister_tool(&mut self, name: &str) -> Result<()>;
     fn clear_tools(&mut self) -> Result<()>;
     fn registered_tools(&self) -> Vec<Tool>;
-    fn call_tool(&mut self, tool_name: String, parameters: serde_json::Value) -> Result<String>;
+    fn call_tool(&mut self, tool_name: String, parameters: serde_json::Value) -> ToolFuture;
 }
 
-#[derive(Clone, serde::Serialize)]
+/// Future type returned by tool functions.
+pub type ToolFuture = BoxFuture<'static, Result<String>>;
+
+#[derive(serde::Serialize)]
 pub struct Tool {
     pub(crate) name: String,
     pub(crate) description: String,
     #[serde(rename = "parameters")]
     pub(crate) schema: schemars::schema::RootSchema,
     #[serde(skip_serializing)]
-    pub(crate) function: fn(parameters: serde_json::Value) -> Result<String>,
+    pub(crate) function: Arc<dyn Fn(serde_json::Value) -> ToolFuture + Send + Sync>,
     #[serde(skip_serializing)]
     pub(crate) error_strategy: ErrorStrategy,
     #[serde(skip_serializing)]
     pub(crate) max_retries: u32,
+}
+
+impl Clone for Tool {
+    fn clone(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            description: self.description.clone(),
+            schema: self.schema.clone(),
+            function: Arc::clone(&self.function),
+            error_strategy: self.error_strategy.clone(),
+            max_retries: self.max_retries,
+        }
+    }
 }
 
 impl Tool {
@@ -43,7 +61,7 @@ impl Tool {
         name: String,
         description: String,
         schema: schemars::schema::RootSchema,
-        function: fn(parameters: serde_json::Value) -> Result<String>,
+        function: impl Fn(serde_json::Value) -> ToolFuture + Send + Sync + 'static,
         error_strategy: ErrorStrategy,
         max_retries: u32,
     ) -> Self {
@@ -51,7 +69,7 @@ impl Tool {
             name,
             description,
             schema,
-            function,
+            function: Arc::new(function),
             error_strategy,
             max_retries,
         }
@@ -63,9 +81,9 @@ impl Tool {
     }
 
     /// Execute the tool with the given parameters, returning its result.
-    pub fn call(&self, parameters: serde_json::Value) -> Result<String> {
+    pub async fn call(&self, parameters: serde_json::Value) -> Result<String> {
         self.validate(&parameters)?;
-        (self.function)(parameters)
+        (self.function)(parameters).await
     }
 
     /// Get a reference to the declared parameters schema.

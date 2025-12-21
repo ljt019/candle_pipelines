@@ -3,7 +3,7 @@ use crate::Result;
 use candle_core::{Device, Tensor};
 
 // Re-export tool-related types
-pub use super::tools::{ErrorStrategy, IntoTool, Tool, ToolCalling};
+pub use super::tools::{ErrorStrategy, IntoTool, Tool, ToolCalling, ToolFuture};
 
 /// Minimal interface required by the text-generation pipeline for a model context.
 ///
