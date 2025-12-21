@@ -1,6 +1,6 @@
 use anyhow::Result;
 use std::io::Write;
-use transformers::pipelines::text_generation_pipeline::*;
+use transformers::pipelines::text_generation::*;
 
 #[tool]
 /// Calculates the average speed given distance and time

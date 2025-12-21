@@ -10,11 +10,9 @@ use minijinja_contrib::{add_to_environment, pycompat};
 use tokenizers::Tokenizer;
 use tokio::fs;
 
-use crate::core::GenerationConfig;
+use crate::loaders::GenerationConfig;
 use crate::loaders::{GenerationConfigLoader, GgufModelLoader, HfLoader, TokenizerLoader};
-use crate::pipelines::text_generation_pipeline::model::{
-    LanguageModelContext, TextGenerationModel,
-};
+use crate::pipelines::text_generation::model::{LanguageModelContext, TextGenerationModel};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Gemma3Size {
@@ -65,7 +63,7 @@ impl std::fmt::Display for Gemma3Size {
     }
 }
 
-impl crate::core::ModelOptions for Gemma3Size {
+impl crate::pipelines::cache::ModelOptions for Gemma3Size {
     fn cache_key(&self) -> String {
         self.to_string()
     }
@@ -329,8 +327,10 @@ impl TextGenerationModel for Gemma3Model {
         Ok(())
     }
 
-    fn default_generation_params(&self) -> crate::models::generation::GenerationParams {
-        crate::models::generation::GenerationParams {
+    fn default_generation_params(
+        &self,
+    ) -> crate::pipelines::text_generation::params::GenerationParams {
+        crate::pipelines::text_generation::params::GenerationParams {
             temperature: self.generation_config.temperature.unwrap_or(1.0),
             repeat_penalty: self.generation_config.repeat_penalty.unwrap_or(1.15),
             repeat_last_n: self.generation_config.repeat_last_n.unwrap_or(64),

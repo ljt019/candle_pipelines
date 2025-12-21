@@ -9,7 +9,7 @@
 //! The `BasePipelineBuilder` trait captures this common pattern.
 
 use super::{build_cache_key, DeviceRequest, DeviceSelectable};
-use crate::core::{global_cache, ModelOptions};
+use crate::pipelines::cache::{global_cache, ModelOptions};
 use anyhow::Result;
 
 /// A trait that captures the common pipeline building pattern.

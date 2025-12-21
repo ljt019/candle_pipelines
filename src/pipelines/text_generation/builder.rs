@@ -1,5 +1,5 @@
-use crate::core::{global_cache, ModelOptions};
-use crate::models::generation::GenerationParams;
+use super::params::GenerationParams;
+use crate::pipelines::cache::{global_cache, ModelOptions};
 use crate::models::{Gemma3Model, Gemma3Size, Qwen3Model, Qwen3Size};
 use crate::pipelines::utils::{build_cache_key, DeviceRequest, DeviceSelectable};
 

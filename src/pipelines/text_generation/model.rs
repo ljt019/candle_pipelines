@@ -55,8 +55,10 @@ pub trait TextGenerationModel {
     fn clear_context(&self, context: &mut Self::Context) -> anyhow::Result<()>;
 
     /// Get the default generation parameters for this model.
-    fn default_generation_params(&self) -> crate::models::generation::GenerationParams {
-        crate::models::generation::GenerationParams::default()
+    fn default_generation_params(
+        &self,
+    ) -> crate::pipelines::text_generation::params::GenerationParams {
+        crate::pipelines::text_generation::params::GenerationParams::default()
     }
 }
 

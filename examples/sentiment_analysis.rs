@@ -1,5 +1,5 @@
 use anyhow::Result;
-use transformers::pipelines::sentiment_analysis_pipeline::*;
+use transformers::pipelines::sentiment::*;
 use transformers::pipelines::utils::BasePipelineBuilder;
 
 #[tokio::main]

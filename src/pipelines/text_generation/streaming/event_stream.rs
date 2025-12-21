@@ -1,4 +1,4 @@
-use crate::pipelines::text_generation_pipeline::parser::Event;
+use crate::pipelines::text_generation::parser::Event;
 use futures::Stream;
 use pin_project_lite::pin_project;
 use std::pin::Pin;
@@ -48,7 +48,7 @@ impl<S> EventStream<S> {
     where
         S: Stream<Item = Event>,
     {
-        use crate::pipelines::text_generation_pipeline::parser::TagParts;
+        use crate::pipelines::text_generation::parser::TagParts;
         use futures::StreamExt;
         let mut out = String::new();
         while let Some(event) = self.inner.as_mut().next().await {
@@ -109,7 +109,7 @@ impl<S> EventStream<S> {
     where
         S: Stream<Item = Event>,
     {
-        use crate::pipelines::text_generation_pipeline::parser::TagParts;
+        use crate::pipelines::text_generation::parser::TagParts;
         self.filter(|event| event.part() == TagParts::Content)
     }
 }

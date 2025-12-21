@@ -4,7 +4,7 @@
 #![cfg(feature = "integration")]
 
 use transformers::pipelines::utils::{BasePipelineBuilder, DeviceSelectable};
-use transformers::pipelines::zero_shot_classification_pipeline::*;
+use transformers::pipelines::zero_shot::*;
 
 #[tokio::test]
 async fn zero_shot_basic() -> anyhow::Result<()> {

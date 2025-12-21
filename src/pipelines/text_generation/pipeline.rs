@@ -4,8 +4,8 @@ use super::base_pipeline::BasePipeline;
 
 use super::model::TextGenerationModel;
 use super::model::{LanguageModelContext, ToggleableReasoning};
+use super::params::GenerationParams;
 use super::tools::{ErrorStrategy, Tool, ToolCalling};
-use crate::models::generation::GenerationParams;
 use async_stream::try_stream;
 use regex::Regex;
 use serde::Deserialize;
@@ -148,7 +148,7 @@ impl<M: TextGenerationModel + Send> TextGenerationPipeline<M> {
         &'a self,
         input: impl Into<Input<'a>>,
     ) -> anyhow::Result<
-        crate::pipelines::text_generation_pipeline::streaming::CompletionStream<
+        crate::pipelines::text_generation::streaming::CompletionStream<
             impl futures::Stream<Item = anyhow::Result<String>> + Send + 'a,
         >,
     > {
@@ -202,14 +202,14 @@ impl<M: TextGenerationModel + Send> TextGenerationPipeline<M> {
     fn completion_stream_from_tokens<'a>(
         &'a self,
         tokens: Vec<u32>,
-    ) -> crate::pipelines::text_generation_pipeline::streaming::CompletionStream<
+    ) -> crate::pipelines::text_generation::streaming::CompletionStream<
         impl futures::Stream<Item = anyhow::Result<String>> + Send + 'a,
     >
     where
         M: Send + 'a,
     {
         let inner = self.base.token_stream(tokens);
-        crate::pipelines::text_generation_pipeline::streaming::CompletionStream::new(inner)
+        crate::pipelines::text_generation::streaming::CompletionStream::new(inner)
     }
 }
 
@@ -398,7 +398,7 @@ impl<M: TextGenerationModel + ToolCalling + Send> TextGenerationPipeline<M> {
         &'a self,
         input: impl Into<Input<'a>>,
     ) -> anyhow::Result<
-        crate::pipelines::text_generation_pipeline::streaming::CompletionStream<
+        crate::pipelines::text_generation::streaming::CompletionStream<
             impl futures::Stream<Item = anyhow::Result<String>> + Send + 'a,
         >,
     > {
@@ -465,11 +465,7 @@ impl<M: TextGenerationModel + ToolCalling + Send> TextGenerationPipeline<M> {
                 }
             }
         };
-        Ok(
-            crate::pipelines::text_generation_pipeline::streaming::CompletionStream::new(
-                out_stream,
-            ),
-        )
+        Ok(crate::pipelines::text_generation::streaming::CompletionStream::new(out_stream))
     }
 
     fn extract_tool_calls(text: &str) -> anyhow::Result<Vec<ToolCallInvocation>> {
