@@ -8,7 +8,7 @@ use transformers::pipelines::sentiment::*;
 use transformers::pipelines::utils::{BasePipelineBuilder, DeviceSelectable};
 
 #[test]
-fn sentiment_basic() -> anyhow::Result<()> {
+fn sentiment_basic() -> transformers::Result<()> {
     let pipeline = SentimentAnalysisPipelineBuilder::modernbert(ModernBertSize::Base)
         .cuda_device(0)
         .build()?;
@@ -20,7 +20,7 @@ fn sentiment_basic() -> anyhow::Result<()> {
 }
 
 #[test]
-fn sentiment_batch_faster_than_sequential() -> anyhow::Result<()> {
+fn sentiment_batch_faster_than_sequential() -> transformers::Result<()> {
     let pipeline = SentimentAnalysisPipelineBuilder::modernbert(ModernBertSize::Base)
         .cuda_device(0)
         .build()?;

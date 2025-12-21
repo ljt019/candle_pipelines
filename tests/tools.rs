@@ -13,7 +13,7 @@ fn get_weather(city: String) -> Result<String> {
 }
 
 #[tokio::test]
-async fn tool_calling_basic() -> anyhow::Result<()> {
+async fn tool_calling_basic() -> transformers::Result<()> {
     let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
         .cuda_device(0)
         .seed(42)
@@ -38,7 +38,7 @@ fn echo(msg: String) -> String {
 }
 
 #[tokio::test]
-async fn tool_registration() -> anyhow::Result<()> {
+async fn tool_registration() -> transformers::Result<()> {
     let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
         .cuda_device(0)
         .seed(0)
@@ -64,7 +64,7 @@ fn fail_tool() -> Result<String> {
 }
 
 #[tokio::test]
-async fn tool_error_fail_strategy() -> anyhow::Result<()> {
+async fn tool_error_fail_strategy() -> transformers::Result<()> {
     let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
         .cuda_device(0)
         .seed(0)

@@ -8,7 +8,7 @@ use transformers::pipelines::utils::{BasePipelineBuilder, DeviceSelectable};
 use transformers::pipelines::zero_shot::*;
 
 #[test]
-fn zero_shot_basic() -> anyhow::Result<()> {
+fn zero_shot_basic() -> transformers::Result<()> {
     let pipeline = ZeroShotClassificationPipelineBuilder::modernbert(ModernBertSize::Base)
         .cuda_device(0)
         .build()?;
@@ -20,7 +20,7 @@ fn zero_shot_basic() -> anyhow::Result<()> {
 }
 
 #[test]
-fn zero_shot_batch_faster_than_sequential() -> anyhow::Result<()> {
+fn zero_shot_batch_faster_than_sequential() -> transformers::Result<()> {
     let pipeline = ZeroShotClassificationPipelineBuilder::modernbert(ModernBertSize::Base)
         .cuda_device(0)
         .build()?;

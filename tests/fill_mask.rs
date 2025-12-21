@@ -8,7 +8,7 @@ use transformers::pipelines::fill_mask::*;
 use transformers::pipelines::utils::{BasePipelineBuilder, DeviceSelectable};
 
 #[test]
-fn fill_mask_basic() -> anyhow::Result<()> {
+fn fill_mask_basic() -> transformers::Result<()> {
     let pipeline = FillMaskPipelineBuilder::modernbert(ModernBertSize::Base)
         .cuda_device(0)
         .build()?;
@@ -20,7 +20,7 @@ fn fill_mask_basic() -> anyhow::Result<()> {
 }
 
 #[test]
-fn fill_mask_empty_input_errors() -> anyhow::Result<()> {
+fn fill_mask_empty_input_errors() -> transformers::Result<()> {
     let pipeline = FillMaskPipelineBuilder::modernbert(ModernBertSize::Base)
         .cuda_device(0)
         .build()?;
@@ -30,7 +30,7 @@ fn fill_mask_empty_input_errors() -> anyhow::Result<()> {
 }
 
 #[test]
-fn fill_mask_batch_faster_than_sequential() -> anyhow::Result<()> {
+fn fill_mask_batch_faster_than_sequential() -> transformers::Result<()> {
     let pipeline = FillMaskPipelineBuilder::modernbert(ModernBertSize::Base)
         .cuda_device(0)
         .build()?;
