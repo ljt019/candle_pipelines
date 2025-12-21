@@ -80,7 +80,7 @@ pub use crate::Result;
 pub use std::io::Write;
 
 pub use parser::{Event, TagParts, XmlParser, XmlParserBuilder};
-pub use tools::{ErrorStrategy, IntoTool, Tool, ToolCalling};
+pub use tools::{ErrorStrategy, IntoTool, Tool, ToolCalling, ToolFuture};
 
 #[macro_export]
 macro_rules! tools {
