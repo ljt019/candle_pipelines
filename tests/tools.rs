@@ -5,14 +5,15 @@
 
 use transformers::pipelines::text_generation::*;
 use transformers::pipelines::utils::DeviceSelectable;
+use transformers::{Result, TransformersError};
 
 #[tool]
-fn get_weather(city: String) -> Result<String, ToolError> {
+fn get_weather(city: String) -> Result<String> {
     Ok(format!("The weather in {city} is sunny."))
 }
 
 #[tokio::test]
-async fn tool_calling_basic() -> anyhow::Result<()> {
+async fn tool_calling_basic() -> transformers::Result<()> {
     let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
         .cuda_device(0)
         .seed(42)
@@ -37,7 +38,7 @@ fn echo(msg: String) -> String {
 }
 
 #[tokio::test]
-async fn tool_registration() -> anyhow::Result<()> {
+async fn tool_registration() -> transformers::Result<()> {
     let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
         .cuda_device(0)
         .seed(0)
@@ -58,12 +59,12 @@ async fn tool_registration() -> anyhow::Result<()> {
 }
 
 #[tool(on_error = ErrorStrategy::Fail, retries = 1)]
-fn fail_tool() -> Result<String, ToolError> {
-    Err(ToolError::Message("boom".into()))
+fn fail_tool() -> Result<String> {
+    Err(TransformersError::ToolMessage("boom".into()))
 }
 
 #[tokio::test]
-async fn tool_error_fail_strategy() -> anyhow::Result<()> {
+async fn tool_error_fail_strategy() -> transformers::Result<()> {
     let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
         .cuda_device(0)
         .seed(0)

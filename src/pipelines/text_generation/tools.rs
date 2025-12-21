@@ -1,16 +1,4 @@
-use thiserror::Error;
-
-/// Error type returned by tool functions.
-#[derive(Debug, Error)]
-pub enum ToolError {
-    /// A domain-specific failure message from the tool.
-    #[error("{0}")]
-    Message(String),
-
-    /// The tool invocation failed due to malformed parameters.
-    #[error("parameter decoding failed: {0}")]
-    Format(String),
-}
+use crate::{Result, TransformersError};
 
 /// Strategy for handling tool errors.
 #[derive(Debug, Clone)]
@@ -28,15 +16,11 @@ impl Default for ErrorStrategy {
 }
 
 pub trait ToolCalling {
-    fn register_tool(&mut self, tool: Tool) -> anyhow::Result<()>;
-    fn unregister_tool(&mut self, name: &str) -> anyhow::Result<()>;
-    fn clear_tools(&mut self) -> anyhow::Result<()>;
+    fn register_tool(&mut self, tool: Tool) -> Result<()>;
+    fn unregister_tool(&mut self, name: &str) -> Result<()>;
+    fn clear_tools(&mut self) -> Result<()>;
     fn registered_tools(&self) -> Vec<Tool>;
-    fn call_tool(
-        &mut self,
-        tool_name: String,
-        parameters: serde_json::Value,
-    ) -> Result<String, ToolError>;
+    fn call_tool(&mut self, tool_name: String, parameters: serde_json::Value) -> Result<String>;
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -46,7 +30,7 @@ pub struct Tool {
     #[serde(rename = "parameters")]
     pub(crate) schema: schemars::schema::RootSchema,
     #[serde(skip_serializing)]
-    pub(crate) function: fn(parameters: serde_json::Value) -> Result<String, ToolError>,
+    pub(crate) function: fn(parameters: serde_json::Value) -> Result<String>,
     #[serde(skip_serializing)]
     pub(crate) error_strategy: ErrorStrategy,
     #[serde(skip_serializing)]
@@ -59,7 +43,7 @@ impl Tool {
         name: String,
         description: String,
         schema: schemars::schema::RootSchema,
-        function: fn(parameters: serde_json::Value) -> Result<String, ToolError>,
+        function: fn(parameters: serde_json::Value) -> Result<String>,
         error_strategy: ErrorStrategy,
         max_retries: u32,
     ) -> Self {
@@ -79,7 +63,7 @@ impl Tool {
     }
 
     /// Execute the tool with the given parameters, returning its result.
-    pub fn call(&self, parameters: serde_json::Value) -> Result<String, ToolError> {
+    pub fn call(&self, parameters: serde_json::Value) -> Result<String> {
         self.validate(&parameters)?;
         (self.function)(parameters)
     }
@@ -105,13 +89,14 @@ impl Tool {
     }
 
     /// Validate a parameters value against the tool schema.
-    pub fn validate(&self, params: &serde_json::Value) -> Result<(), ToolError> {
-        let schema = serde_json::to_value(&self.schema)
-            .map_err(|e| ToolError::Format(format!("schema serialization failed: {e}")))?;
+    pub fn validate(&self, params: &serde_json::Value) -> Result<()> {
+        let schema = serde_json::to_value(&self.schema).map_err(|e| {
+            TransformersError::ToolFormat(format!("schema serialization failed: {e}"))
+        })?;
         let compiled = jsonschema::JSONSchema::options()
             .with_draft(jsonschema::Draft::Draft7)
             .compile(&schema)
-            .map_err(|e| ToolError::Format(format!("invalid schema: {e}")))?;
+            .map_err(|e| TransformersError::ToolFormat(format!("invalid schema: {e}")))?;
 
         let validation_result = compiled.validate(params).map_err(|errors| {
             errors
@@ -123,7 +108,7 @@ impl Tool {
             Ok(_) => Ok(()),
             Err(messages) => {
                 let error_msg = messages.join(", ");
-                Err(ToolError::Format(error_msg))
+                Err(TransformersError::ToolFormat(error_msg))
             }
         }
     }

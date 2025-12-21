@@ -5,6 +5,6 @@ review.md
 .claude
 
 *.md
-!possible_tasks/*.md
+!all_tasks/*.md
 !AGENTS.md
 !README.md

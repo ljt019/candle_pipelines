@@ -8,7 +8,7 @@ use transformers::pipelines::text_generation::*;
 use transformers::pipelines::utils::DeviceSelectable;
 
 #[tokio::test]
-async fn pipelines_share_weights() -> anyhow::Result<()> {
+async fn pipelines_share_weights() -> transformers::Result<()> {
     global_cache().clear();
 
     let mut pipelines = Vec::new();

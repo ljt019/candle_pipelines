@@ -1,7 +1,7 @@
-use anyhow::Result;
 use std::io::Write;
 use transformers::pipelines::text_generation::*;
 use transformers::pipelines::utils::DeviceSelectable;
+use transformers::Result;
 
 #[tokio::main]
 async fn main() -> Result<()> {

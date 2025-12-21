@@ -1,9 +1,9 @@
-use anyhow::Result;
 use transformers::pipelines::text_generation::*;
+use transformers::Result;
 
 #[tool]
 /// Gets the current weather in a given city
-fn get_weather(city: String) -> Result<String, ToolError> {
+fn get_weather(city: String) -> Result<String> {
     Ok(format!("The weather in {} is sunny.", city))
 }
 

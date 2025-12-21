@@ -16,8 +16,8 @@
 //! ## Usage Example
 //!
 //! ```rust,no_run
-//! use anyhow::Result;
 //! use transformers::pipelines::text_generation::*;
+//! use transformers::Result;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<()> {
@@ -74,13 +74,13 @@ pub use futures::TryStreamExt;
 pub use crate::{Message, MessageVecExt};
 
 // Re-export Result type for convenience
-pub use anyhow::Result;
+pub use crate::Result;
 
 // Re-export std::io::Write for flushing stdout in examples
 pub use std::io::Write;
 
 pub use parser::{Event, TagParts, XmlParser, XmlParserBuilder};
-pub use tools::{ErrorStrategy, IntoTool, Tool, ToolCalling, ToolError};
+pub use tools::{ErrorStrategy, IntoTool, Tool, ToolCalling};
 
 #[macro_export]
 macro_rules! tools {

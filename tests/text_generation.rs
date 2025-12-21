@@ -7,7 +7,7 @@ use transformers::pipelines::text_generation::*;
 use transformers::pipelines::utils::DeviceSelectable;
 
 #[tokio::test]
-async fn text_generation_basic() -> anyhow::Result<()> {
+async fn text_generation_basic() -> transformers::Result<()> {
     let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
         .cuda_device(0)
         .seed(42)
@@ -22,7 +22,7 @@ async fn text_generation_basic() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn text_generation_streaming() -> anyhow::Result<()> {
+async fn text_generation_streaming() -> transformers::Result<()> {
     let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
         .cuda_device(0)
         .seed(42)
@@ -40,7 +40,7 @@ async fn text_generation_streaming() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn text_generation_params_update() -> anyhow::Result<()> {
+async fn text_generation_params_update() -> transformers::Result<()> {
     let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
         .cuda_device(0)
         .seed(42)

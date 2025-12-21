@@ -3075,7 +3075,6 @@ name = "transformers"
 version = "0.0.14"
 dependencies = [
  "aho-corasick",
- "anyhow",
  "async-stream",
  "candle-core",
  "candle-nn",

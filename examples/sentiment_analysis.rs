@@ -1,6 +1,6 @@
-use anyhow::Result;
 use transformers::pipelines::sentiment::*;
 use transformers::pipelines::utils::BasePipelineBuilder;
+use transformers::Result;
 
 fn main() -> Result<()> {
     println!("Building pipeline...");
