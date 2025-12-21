@@ -1,5 +1,17 @@
-use crate::core::ToolError;
 use std::collections::HashMap;
+use thiserror::Error;
+
+/// Error type returned by tool functions.
+#[derive(Debug, Error)]
+pub enum ToolError {
+    /// A domain-specific failure message from the tool.
+    #[error("{0}")]
+    Message(String),
+
+    /// The tool invocation failed due to malformed parameters.
+    #[error("parameter decoding failed: {0}")]
+    Format(String),
+}
 
 /// Strategy for handling tool errors.
 #[derive(Debug, Clone)]

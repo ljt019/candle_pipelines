@@ -1,6 +1,6 @@
 use anyhow::Result;
 use std::io::Write;
-use transformers::pipelines::text_generation_pipeline::*;
+use transformers::pipelines::text_generation::*;
 
 #[tool(on_error = ErrorStrategy::Fail, retries = 5)]
 /// Get the weather for a given city.

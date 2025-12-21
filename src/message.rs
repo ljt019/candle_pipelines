@@ -36,9 +36,6 @@ pub struct Message {
 
 impl Message {
     /// Create a new system message.
-    ///
-    /// System messages are used to provide instructions to the model.
-    /// It's not recommended to use more than one of these in a given chat.
     pub fn system(content: &str) -> Self {
         Self {
             role: Role::System,
@@ -47,8 +44,6 @@ impl Message {
     }
 
     /// Create a new user message.
-    ///
-    /// User messages are used to send messages from the user to the model.
     pub fn user(content: &str) -> Self {
         Self {
             role: Role::User,
@@ -57,8 +52,6 @@ impl Message {
     }
 
     /// Create a new assistant message.
-    ///
-    /// Assistant messages are used to store responses from the model.
     pub fn assistant(content: &str) -> Self {
         Self {
             role: Role::Assistant,
@@ -78,27 +71,10 @@ impl Message {
 }
 
 /// Trait extension for Vec<Message> that provides convenient methods for
-/// accessing common message types without verbose iterator chains.
+/// accessing common message types.
 pub trait MessageVecExt {
-    /// Get the content of the last user message in the conversation.
-    ///
-    /// # Returns
-    /// - `Some(&str)` - The content of the last user message if found
-    /// - `None` - If no user messages exist in the conversation
     fn last_user(&self) -> Option<&str>;
-
-    /// Get the content of the last assistant message in the conversation.
-    ///
-    /// # Returns
-    /// - `Some(&str)` - The content of the last assistant message if found
-    /// - `None` - If no assistant messages exist in the conversation
     fn last_assistant(&self) -> Option<&str>;
-
-    /// Get the content of the system message in the conversation.
-    ///
-    /// # Returns
-    /// - `Some(&str)` - The content of the system message if found
-    /// - `None` - If no system message exists in the conversation
     fn system(&self) -> Option<&str>;
 }
 
@@ -107,23 +83,23 @@ impl<T: AsRef<[Message]>> MessageVecExt for T {
         self.as_ref()
             .iter()
             .rev()
-            .find(|message| message.role() == &Role::User)
-            .map(|msg| msg.content())
+            .find(|m| m.role() == &Role::User)
+            .map(|m| m.content())
     }
 
     fn last_assistant(&self) -> Option<&str> {
         self.as_ref()
             .iter()
             .rev()
-            .find(|message| message.role() == &Role::Assistant)
-            .map(|msg| msg.content())
+            .find(|m| m.role() == &Role::Assistant)
+            .map(|m| m.content())
     }
 
     fn system(&self) -> Option<&str> {
         self.as_ref()
             .iter()
-            .find(|message| message.role() == &Role::System)
-            .map(|msg| msg.content())
+            .find(|m| m.role() == &Role::System)
+            .map(|m| m.content())
     }
 }
 
@@ -132,43 +108,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_message_vec_ext_last_user() {
+    fn test_last_user() {
         let messages = vec![
             Message::system("You are helpful"),
-            Message::user("First question"),
-            Message::assistant("First answer"),
-            Message::user("Second question"),
-        ];
-
-        assert_eq!(messages.last_user(), Some("Second question"));
-    }
-
-    #[test]
-    fn test_message_vec_ext_last_assistant() {
-        let messages = vec![
-            Message::system("You are helpful"),
-            Message::user("Question"),
-            Message::assistant("First answer"),
-            Message::user("Follow up"),
-            Message::assistant("Second answer"),
-        ];
-
-        assert_eq!(messages.last_assistant(), Some("Second answer"));
-    }
-
-    #[test]
-    fn test_message_vec_ext_system() {
-        let messages = vec![
-            Message::system("You are helpful"),
-            Message::user("Question"),
+            Message::user("First"),
             Message::assistant("Answer"),
+            Message::user("Second"),
         ];
-
-        assert_eq!(messages.system(), Some("You are helpful"));
+        assert_eq!(messages.last_user(), Some("Second"));
     }
 
     #[test]
-    fn test_message_vec_ext_empty() {
+    fn test_last_assistant() {
+        let messages = vec![
+            Message::user("Q"),
+            Message::assistant("A1"),
+            Message::assistant("A2"),
+        ];
+        assert_eq!(messages.last_assistant(), Some("A2"));
+    }
+
+    #[test]
+    fn test_system() {
+        let messages = vec![Message::system("Sys"), Message::user("Q")];
+        assert_eq!(messages.system(), Some("Sys"));
+    }
+
+    #[test]
+    fn test_empty() {
         let messages: Vec<Message> = vec![];
         assert_eq!(messages.last_user(), None);
         assert_eq!(messages.last_assistant(), None);

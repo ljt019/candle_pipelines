@@ -25,7 +25,8 @@ fn extract_doc(attrs: &[Attribute]) -> String {
 
 /// Parse the tool attribute arguments for error strategy and retries.
 fn parse_tool_config(args: TokenStream) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
-    let default_error_strategy = quote! { transformers::pipelines::text_generation_pipeline::ErrorStrategy::Fail };
+    let default_error_strategy =
+        quote! { transformers::pipelines::text_generation::ErrorStrategy::Fail };
     let default_retries = quote! { 3u32 };
 
     if args.is_empty() {
@@ -74,9 +75,9 @@ fn parse_error_strategy_from_expr(expr: &syn::Expr) -> proc_macro2::TokenStream 
 
     // Handle different forms of the error strategy
     if expr_str == "Fail" || expr_str.contains("ErrorStrategy::Fail") {
-        quote! { transformers::pipelines::text_generation_pipeline::ErrorStrategy::Fail }
+        quote! { transformers::pipelines::text_generation::ErrorStrategy::Fail }
     } else if expr_str == "ReturnToModel" || expr_str.contains("ErrorStrategy::ReturnToModel") {
-        quote! { transformers::pipelines::text_generation_pipeline::ErrorStrategy::ReturnToModel }
+        quote! { transformers::pipelines::text_generation::ErrorStrategy::ReturnToModel }
     } else {
         // Generate a compile-time error for invalid strategies
         syn::Error::new_spanned(
@@ -194,7 +195,7 @@ pub fn tool(args: TokenStream, item: TokenStream) -> TokenStream {
     let wrapper_body = if is_result {
         quote! {
             #( #extraction_stmts )*
-            use transformers::core::ToolError;
+            use transformers::pipelines::text_generation::ToolError;
             let result = #fn_name_ident( #(#call_args),* );
 
             // Convert the result to the expected type
@@ -218,17 +219,17 @@ pub fn tool(args: TokenStream, item: TokenStream) -> TokenStream {
 
         // Automatically generated wrapper that matches the `Tool` function signature.
         #[doc(hidden)]
-        fn #wrapper_name(mut parameters: std::collections::HashMap<String, String>) -> Result<String, transformers::core::ToolError> {
+        fn #wrapper_name(mut parameters: std::collections::HashMap<String, String>) -> Result<String, transformers::pipelines::text_generation::ToolError> {
             #wrapper_body
         }
 
         // Hidden function used by the tools! macro
         #[doc(hidden)]
-        pub fn #tool_builder_name() -> transformers::pipelines::text_generation_pipeline::Tool {
+        pub fn #tool_builder_name() -> transformers::pipelines::text_generation::Tool {
             let mut parameters = std::collections::HashMap::new();
             #( #schema_kv_pairs )*
 
-            transformers::pipelines::text_generation_pipeline::Tool::new(
+            transformers::pipelines::text_generation::Tool::new(
                 #fn_name_str.to_string(),
                 #description.to_string(),
                 parameters,
@@ -244,7 +245,7 @@ pub fn tool(args: TokenStream, item: TokenStream) -> TokenStream {
         pub mod #fn_name_ident {
             use super::*;
 
-            pub fn __tool() -> transformers::pipelines::text_generation_pipeline::Tool {
+            pub fn __tool() -> transformers::pipelines::text_generation::Tool {
                 #tool_builder_name()
             }
         }

@@ -1,6 +1,9 @@
-pub mod generation;
-pub mod implementations;
+pub mod gemma3;
+pub mod modernbert;
+pub mod qwen3;
 
-pub use implementations::{
-    Gemma3Model, Gemma3Size, ModernBertModel, ModernBertSize, Qwen3Model, Qwen3Size,
+pub use gemma3::{Gemma3Model, Gemma3Size};
+pub use modernbert::{
+    FillMaskModernBertModel, ModernBertSize, SentimentModernBertModel, ZeroShotModernBertModel,
 };
+pub use qwen3::{Qwen3Model, Qwen3Size};

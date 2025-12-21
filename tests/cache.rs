@@ -4,7 +4,7 @@
 #![cfg(feature = "integration")]
 
 use transformers::core::global_cache;
-use transformers::pipelines::text_generation_pipeline::*;
+use transformers::pipelines::text_generation::*;
 use transformers::pipelines::utils::DeviceSelectable;
 
 #[tokio::test]

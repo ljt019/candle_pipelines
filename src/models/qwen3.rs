@@ -67,7 +67,7 @@ impl std::fmt::Display for Qwen3Size {
     }
 }
 
-impl crate::core::ModelOptions for Qwen3Size {
+impl crate::pipelines::cache::ModelOptions for Qwen3Size {
     fn cache_key(&self) -> String {
         self.to_string()
     }
@@ -82,8 +82,8 @@ pub struct Qwen3Model {
     weights: Arc<candle_qwen3::ModelWeights>,
     info: ModelInfo,
     reasoning: bool,
-    generation_config: crate::core::GenerationConfig,
-    tools: Vec<crate::pipelines::text_generation_pipeline::Tool>,
+    generation_config: crate::loaders::GenerationConfig,
+    tools: Vec<crate::pipelines::text_generation::Tool>,
     chat_template_env: Arc<Environment<'static>>,
 }
 
@@ -350,7 +350,7 @@ Pipeline Stuff
 
 */
 
-use crate::pipelines::text_generation_pipeline::model::{
+use crate::pipelines::text_generation::model::{
     LanguageModelContext, TextGenerationModel, ToggleableReasoning, ToolCalling,
 };
 
@@ -414,7 +414,7 @@ impl TextGenerationModel for Qwen3Model {
         if let Some(last_user_msg) = messages
             .iter()
             .rev()
-            .find(|msg| msg.role() == &crate::core::message::Role::User)
+            .find(|msg| msg.role() == &crate::message::Role::User)
         {
             let content = last_user_msg.content();
             if content.contains("/think") {
@@ -429,7 +429,7 @@ impl TextGenerationModel for Qwen3Model {
             .iter()
             .map(|msg| {
                 let mut content = msg.content().to_string();
-                if msg.role() == &crate::core::message::Role::User {
+                if msg.role() == &crate::message::Role::User {
                     content = content
                         .replace("/think", "")
                         .replace("/no_think", "")
@@ -466,8 +466,10 @@ impl TextGenerationModel for Qwen3Model {
         Ok(())
     }
 
-    fn default_generation_params(&self) -> crate::models::generation::GenerationParams {
-        crate::models::generation::GenerationParams {
+    fn default_generation_params(
+        &self,
+    ) -> crate::pipelines::text_generation::params::GenerationParams {
+        crate::pipelines::text_generation::params::GenerationParams {
             temperature: self.generation_config.temperature.unwrap_or(0.6),
             repeat_penalty: self.generation_config.repeat_penalty.unwrap_or(1.1),
             repeat_last_n: self.generation_config.repeat_last_n.unwrap_or(64),
@@ -487,8 +489,8 @@ impl ToggleableReasoning for Qwen3Model {
     }
 }
 
-use crate::core::ToolError;
-use crate::pipelines::text_generation_pipeline::model::Tool;
+use crate::pipelines::text_generation::tools::ToolError;
+use crate::pipelines::text_generation::model::Tool;
 
 impl ToolCalling for Qwen3Model {
     fn register_tool(&mut self, tool: Tool) -> anyhow::Result<()> {

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use transformers::pipelines::text_generation_pipeline::*;
+use transformers::pipelines::text_generation::*;
 
 #[tool]
 /// Gets the current weather in a given city

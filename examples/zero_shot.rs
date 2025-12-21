@@ -1,6 +1,6 @@
 use anyhow::Result;
 use transformers::pipelines::utils::BasePipelineBuilder;
-use transformers::pipelines::zero_shot_classification_pipeline::*;
+use transformers::pipelines::zero_shot::*;
 
 #[tokio::main]
 async fn main() -> Result<()> {

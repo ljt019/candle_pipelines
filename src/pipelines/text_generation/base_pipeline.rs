@@ -1,7 +1,5 @@
 use super::model::{LanguageModelContext, TextGenerationModel};
-use crate::models::generation::{
-    apply_repeat_penalty, initialize_logits_processor, GenerationParams,
-};
+use super::params::{apply_repeat_penalty, initialize_logits_processor, GenerationParams};
 use candle_core::Tensor;
 use std::sync::Arc;
 use tokenizers::Tokenizer;

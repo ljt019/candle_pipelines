@@ -15,7 +15,7 @@
 //!
 //! ```rust,no_run
 //! use anyhow::Result;
-//! use transformers::pipelines::fill_mask_pipeline::*;
+//! use transformers::pipelines::fill_mask::*;
 //! use transformers::pipelines::utils::BasePipelineBuilder;
 //!
 //! #[tokio::main]

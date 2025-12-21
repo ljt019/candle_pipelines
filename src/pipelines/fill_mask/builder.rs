@@ -1,6 +1,6 @@
 use super::model::FillMaskModel;
 use super::pipeline::FillMaskPipeline;
-use crate::core::ModelOptions;
+use crate::pipelines::cache::ModelOptions;
 use crate::pipelines::utils::{
     BasePipelineBuilder, DeviceRequest, DeviceSelectable, StandardPipelineBuilder,
 };
@@ -52,7 +52,7 @@ where
     }
 }
 
-impl FillMaskPipelineBuilder<crate::models::implementations::modernbert::FillMaskModernBertModel> {
+impl FillMaskPipelineBuilder<crate::models::modernbert::FillMaskModernBertModel> {
     pub fn modernbert(size: crate::models::ModernBertSize) -> Self {
         Self::new(size)
     }

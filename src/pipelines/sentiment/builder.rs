@@ -1,34 +1,33 @@
-use super::model::ZeroShotClassificationModel;
-use super::pipeline::ZeroShotClassificationPipeline;
-use crate::core::ModelOptions;
+use super::model::SentimentAnalysisModel;
+use super::pipeline::SentimentAnalysisPipeline;
+use crate::pipelines::cache::ModelOptions;
 use crate::pipelines::utils::{
     BasePipelineBuilder, DeviceRequest, DeviceSelectable, StandardPipelineBuilder,
 };
 
-pub struct ZeroShotClassificationPipelineBuilder<M: ZeroShotClassificationModel>(
+pub struct SentimentAnalysisPipelineBuilder<M: SentimentAnalysisModel>(
     StandardPipelineBuilder<M::Options>,
 );
 
-impl<M: ZeroShotClassificationModel> ZeroShotClassificationPipelineBuilder<M> {
+impl<M: SentimentAnalysisModel> SentimentAnalysisPipelineBuilder<M> {
     pub fn new(options: M::Options) -> Self {
         Self(StandardPipelineBuilder::new(options))
     }
 }
 
-impl<M: ZeroShotClassificationModel> DeviceSelectable for ZeroShotClassificationPipelineBuilder<M> {
+impl<M: SentimentAnalysisModel> DeviceSelectable for SentimentAnalysisPipelineBuilder<M> {
     fn device_request_mut(&mut self) -> &mut DeviceRequest {
         self.0.device_request_mut()
     }
 }
 
-impl<M: ZeroShotClassificationModel> BasePipelineBuilder<M>
-    for ZeroShotClassificationPipelineBuilder<M>
+impl<M: SentimentAnalysisModel> BasePipelineBuilder<M> for SentimentAnalysisPipelineBuilder<M>
 where
     M: Clone + Send + Sync + 'static,
     M::Options: ModelOptions + Clone,
 {
     type Model = M;
-    type Pipeline = ZeroShotClassificationPipeline<M>;
+    type Pipeline = SentimentAnalysisPipeline<M>;
     type Options = M::Options;
 
     fn options(&self) -> &Self::Options {
@@ -51,13 +50,13 @@ where
         model: M,
         tokenizer: tokenizers::Tokenizer,
     ) -> anyhow::Result<Self::Pipeline> {
-        Ok(ZeroShotClassificationPipeline { model, tokenizer })
+        Ok(SentimentAnalysisPipeline { model, tokenizer })
     }
 }
 
 impl
-    ZeroShotClassificationPipelineBuilder<
-        crate::models::implementations::modernbert::ZeroShotModernBertModel,
+    SentimentAnalysisPipelineBuilder<
+        crate::models::modernbert::SentimentModernBertModel,
     >
 {
     pub fn modernbert(size: crate::models::ModernBertSize) -> Self {

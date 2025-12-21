@@ -17,7 +17,7 @@
 //!
 //! ```rust,no_run
 //! use anyhow::Result;
-//! use transformers::pipelines::text_generation_pipeline::*;
+//! use transformers::pipelines::text_generation::*;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<()> {
@@ -44,25 +44,20 @@
 pub mod base_pipeline;
 pub mod builder;
 pub mod model;
+pub mod params;
 pub mod parser;
 pub mod pipeline;
 pub mod streaming;
 pub mod tools;
 pub mod xml_pipeline;
 
+pub use crate::models::{Gemma3Size, Qwen3Size};
 pub use crate::tools;
 pub use builder::TextGenerationPipelineBuilder;
+pub use params::GenerationParams;
 pub use pipeline::{Input, TextGenerationPipeline};
 pub use streaming::{CompletionStream, EventStream};
 pub use xml_pipeline::XmlGenerationPipeline;
-
-// Convenience re-exports so users can simply
-// `use transformers::pipelines::text_generation_pipeline::*;` and access
-// the common model size enums and the `#[tool]` macro without additional
-// import clutter.
-
-pub use crate::models::generation::GenerationParams;
-pub use crate::models::{Gemma3Size, Qwen3Size};
 
 // Re-export the procedural macro (functions as an item in Rust 2018+).
 pub use crate::tool;
@@ -82,9 +77,8 @@ pub use anyhow::Result;
 // Re-export std::io::Write for flushing stdout in examples
 pub use std::io::Write;
 
-pub use crate::core::ToolError;
 pub use parser::{Event, TagParts, XmlParser, XmlParserBuilder};
-pub use tools::{ErrorStrategy, IntoTool, Tool, ToolCalling};
+pub use tools::{ErrorStrategy, IntoTool, Tool, ToolCalling, ToolError};
 
 #[macro_export]
 macro_rules! tools {
