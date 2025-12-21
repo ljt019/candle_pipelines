@@ -122,7 +122,6 @@ impl<M: TextGenerationModel + Send> TextGenerationPipeline<M> {
         }
         Ok(outputs)
     }
-
     async fn prompt_completion_internal(&self, prompt: &str) -> anyhow::Result<String> {
         let (result, _) = self.prompt_completion_internal_with_stats(prompt).await?;
         Ok(result)
