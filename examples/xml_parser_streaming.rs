@@ -1,13 +1,10 @@
-use anyhow::Result;
 use std::io::Write;
 use transformers::pipelines::text_generation::*;
+use transformers::Result;
 
 #[tool]
 /// Calculates the average speed given distance and time
-fn calculate_average_speed(
-    distance_in_miles: u64,
-    time_in_minutes: u64,
-) -> Result<String, ToolError> {
+fn calculate_average_speed(distance_in_miles: u64, time_in_minutes: u64) -> Result<String> {
     Ok(format!(
         "Average speed: {} mph",
         distance_in_miles / time_in_minutes
@@ -16,7 +13,7 @@ fn calculate_average_speed(
 
 #[tool]
 /// Gets the current weather in a given city
-fn get_weather(city: String) -> Result<String, ToolError> {
+fn get_weather(city: String) -> Result<String> {
     Ok(format!("The weather in {} is sunny.", city))
 }
 

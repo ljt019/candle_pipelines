@@ -1,11 +1,11 @@
-use anyhow::Result;
 use std::io::Write;
 use transformers::pipelines::text_generation::*;
 use transformers::pipelines::utils::DeviceSelectable;
+use transformers::Result;
 
 #[tool(on_error = ErrorStrategy::Fail, retries = 5)]
 /// Get the weather for a given city.
-fn get_humidity(city: String) -> Result<String, ToolError> {
+fn get_humidity(city: String) -> Result<String> {
     Ok(format!("The humidity is 1% in {}.", city))
 }
 
@@ -15,7 +15,7 @@ fn get_humidity(city: String) -> Result<String, ToolError> {
 
 #[tool]
 /// Get the weather for a given city in degrees celsius.
-fn get_temperature(city: String) -> Result<String, ToolError> {
+fn get_temperature(city: String) -> Result<String> {
     Ok(format!(
         "The temperature is 20 degrees celsius in {}.",
         city

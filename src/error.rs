@@ -1,4 +1,3 @@
-use crate::pipelines::text_generation::tools::ToolError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -36,7 +35,10 @@ pub enum TransformersError {
 
     // Tools
     #[error("Tool error: {0}")]
-    Tool(#[from] ToolError),
+    ToolMessage(String),
+
+    #[error("Tool parameter error: {0}")]
+    ToolFormat(String),
 
     // Network/Download
     #[error("Download failed: {0}")]

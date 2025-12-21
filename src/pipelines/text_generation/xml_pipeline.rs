@@ -4,7 +4,7 @@ use super::model::{LanguageModelContext, ToggleableReasoning};
 use super::params::GenerationParams;
 use super::parser::{Event, XmlParser};
 use super::pipeline::Input;
-use super::tools::{ErrorStrategy, Tool, ToolCalling, ToolError};
+use super::tools::{ErrorStrategy, Tool, ToolCalling};
 use crate::{Result, TransformersError};
 use async_stream::stream;
 use futures::Stream;
@@ -261,10 +261,7 @@ impl<M: TextGenerationModel + ToolCalling + Send> XmlGenerationPipeline<M> {
         for call in tool_calls {
             // Find the tool
             let tool = tools.iter().find(|t| t.name == call.name).ok_or_else(|| {
-                TransformersError::Tool(ToolError::Message(format!(
-                    "Tool '{}' not found",
-                    call.name
-                )))
+                TransformersError::ToolMessage(format!("Tool '{}' not found", call.name))
             })?;
 
             // Execute the tool with retries
@@ -315,9 +312,9 @@ impl<M: TextGenerationModel + ToolCalling + Send> XmlGenerationPipeline<M> {
     ) -> Result<Vec<Event>> {
         let tools = self.base.model.lock().await.registered_tools();
         if tools.is_empty() {
-            return Err(TransformersError::Tool(ToolError::Message(
+            return Err(TransformersError::ToolMessage(
                 "No tools registered. Call register_tools() first.".to_string(),
-            )));
+            ));
         }
 
         let mut messages = match input.into() {
@@ -409,9 +406,9 @@ impl<M: TextGenerationModel + ToolCalling + Send> XmlGenerationPipeline<M> {
     > {
         let tools = self.base.model.lock().await.registered_tools();
         if tools.is_empty() {
-            return Err(TransformersError::Tool(ToolError::Message(
+            return Err(TransformersError::ToolMessage(
                 "No tools registered. Call register_tools() first.".to_string(),
-            )));
+            ));
         }
 
         let initial_messages = match input.into() {

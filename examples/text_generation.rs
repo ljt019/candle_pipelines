@@ -1,5 +1,5 @@
-use anyhow::Result;
 use transformers::pipelines::text_generation::*;
+use transformers::Result;
 
 #[tokio::main]
 async fn main() -> Result<()> {
