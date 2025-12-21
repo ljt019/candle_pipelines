@@ -18,6 +18,14 @@ impl<M: SentimentAnalysisModel> SentimentAnalysisPipeline<M> {
         self.model.predict_with_score(&self.tokenizer, text)
     }
 
+    /// Predict sentiment for a batch of inputs.
+    pub fn predict_batch(
+        &self,
+        texts: &[&str],
+    ) -> anyhow::Result<Vec<anyhow::Result<SentimentResult>>> {
+        self.model.predict_with_score_batch(&self.tokenizer, texts)
+    }
+
     pub fn device(&self) -> &candle_core::Device {
         self.model.device()
     }
