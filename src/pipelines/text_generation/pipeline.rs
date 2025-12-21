@@ -76,6 +76,32 @@ impl<M: TextGenerationModel + Send> TextGenerationPipeline<M> {
         }
     }
 
+    /// Generate completions for a batch of prompts.
+    pub async fn completion_batch<'a>(
+        &self,
+        prompts: &[&'a str],
+    ) -> anyhow::Result<Vec<anyhow::Result<String>>> {
+        let mut outputs = Vec::with_capacity(prompts.len());
+        for prompt in prompts {
+            outputs.push(self.prompt_completion_internal(prompt).await);
+        }
+        Ok(outputs)
+    }
+
+    /// Generate chat completions for a batch of message histories.
+    pub async fn chat_batch(
+        &self,
+        conversations: &[&[crate::Message]],
+    ) -> anyhow::Result<Vec<anyhow::Result<String>>> {
+        let mut outputs = Vec::with_capacity(conversations.len());
+        for messages in conversations {
+            self.base.context.lock().await.reset();
+            self.base.last_processed_tokens.lock().await.clear();
+            outputs.push(self.message_completion_internal(messages).await);
+        }
+        Ok(outputs)
+    }
+
     async fn prompt_completion_internal(&self, prompt: &str) -> anyhow::Result<String> {
         // Reset context for fresh generation
         self.base.context.lock().await.reset();

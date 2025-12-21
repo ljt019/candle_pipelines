@@ -28,6 +28,29 @@ impl<M: ZeroShotClassificationModel> ZeroShotClassificationPipeline<M> {
             .collect())
     }
 
+    /// Classify a batch of inputs with normalized probabilities for single-label classification.
+    pub fn classify_batch(
+        &self,
+        texts: &[&str],
+        candidate_labels: &[&str],
+    ) -> anyhow::Result<Vec<anyhow::Result<Vec<ClassificationResult>>>> {
+        let results = self
+            .model
+            .predict_batch(&self.tokenizer, texts, candidate_labels)?;
+
+        Ok(results
+            .into_iter()
+            .map(|res| {
+                res.map(|entries| {
+                    entries
+                        .into_iter()
+                        .map(|(label, score)| ClassificationResult { label, score })
+                        .collect()
+                })
+            })
+            .collect())
+    }
+
     /// Classify with raw entailment probabilities for multi-label classification
     pub fn classify_multi_label(
         &self,
@@ -40,6 +63,29 @@ impl<M: ZeroShotClassificationModel> ZeroShotClassificationPipeline<M> {
         Ok(results
             .into_iter()
             .map(|(label, score)| ClassificationResult { label, score })
+            .collect())
+    }
+
+    /// Classify a batch of inputs with raw entailment probabilities for multi-label classification.
+    pub fn classify_multi_label_batch(
+        &self,
+        texts: &[&str],
+        candidate_labels: &[&str],
+    ) -> anyhow::Result<Vec<anyhow::Result<Vec<ClassificationResult>>>> {
+        let results =
+            self.model
+                .predict_multi_label_batch(&self.tokenizer, texts, candidate_labels)?;
+
+        Ok(results
+            .into_iter()
+            .map(|res| {
+                res.map(|entries| {
+                    entries
+                        .into_iter()
+                        .map(|(label, score)| ClassificationResult { label, score })
+                        .collect()
+                })
+            })
             .collect())
     }
 
