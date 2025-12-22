@@ -1,4 +1,4 @@
-name: CI
+name: Continuous Integration
 
 on:
   pull_request:
@@ -26,12 +26,12 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Format check
+      - name: Lint
         run: cargo fmt --check
 
-      - name: Cargo check
+      - name: Compile
         run: cargo check --all-targets
 
-      - name: Run offline tests
+      - name: Tests
         run: cargo test
 
