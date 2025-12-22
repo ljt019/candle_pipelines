@@ -14,7 +14,7 @@ Candle provides Rust implementations of models and low-level ML machinery. This 
 
 # Task Management
 
-Tasks live in `all_tasks/` with four subfolders:
+Tasks live in `tasks/` with four subfolders:
 
 - `todo/` - Ready to implement. 
 - `future/` - Good ideas, not ready yet. May need design work or dependencies.
