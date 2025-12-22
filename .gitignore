@@ -6,6 +6,6 @@
 .claude
 
 *.md
-!all_tasks/*/*.md
+!tasks/*/*.md
 !AGENTS.md
 !README.md
