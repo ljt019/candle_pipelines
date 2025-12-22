@@ -134,12 +134,11 @@ impl Qwen3Model {
 
         // Leak the string to get 'static lifetime - this is fine since we're storing it in the model
         let chat_template_static = Box::leak(chat_template_owned.into_boxed_str());
-        env.add_template("chat", chat_template_static).map_err(|e| {
-            ChatTemplateError::ParseFailed {
+        env.add_template("chat", chat_template_static)
+            .map_err(|e| ChatTemplateError::ParseFailed {
                 model: "Qwen3".into(),
                 reason: e.to_string(),
-            }
-        })?;
+            })?;
 
         Ok(Arc::new(env))
     }

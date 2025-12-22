@@ -74,10 +74,8 @@ impl HfLoader {
         let hf_api = hf_hub::api::tokio::ApiBuilder::new()
             .with_chunk_size(None)
             .build()
-            .map_err(|e| {
-                DownloadError::ApiInit {
-                    reason: e.to_string(),
-                }
+            .map_err(|e| DownloadError::ApiInit {
+                reason: e.to_string(),
             })?;
         let hf_repo = self.repo.clone();
         let hf_api = hf_api.model(hf_repo);
@@ -181,13 +179,13 @@ impl GenerationConfigLoader {
         let raw: RawGenerationConfig = serde_json::from_str(&generation_config_content)?;
 
         let eos_token_ids = match raw.eos_token_ids {
-            Some(serde_json::Value::Number(n)) => vec![n.as_u64().ok_or_else(|| {
-                ModelMetadataError::InvalidValue {
+            Some(serde_json::Value::Number(n)) => {
+                vec![n.as_u64().ok_or_else(|| ModelMetadataError::InvalidValue {
                     key: "eos_token_id".into(),
                     expected: "unsigned integer".into(),
                     actual: n.to_string(),
-                }
-            })?],
+                })?]
+            }
             Some(serde_json::Value::Array(arr)) => arr
                 .into_iter()
                 .enumerate()

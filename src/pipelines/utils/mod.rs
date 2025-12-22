@@ -32,15 +32,17 @@ impl DeviceRequest {
                 }
             }
             DeviceRequest::Cpu => Ok(Device::Cpu),
-            DeviceRequest::Cuda(i) => CudaDevice::new_with_stream(i)
-                .map(Device::Cuda)
-                .map_err(|e| {
-                    DeviceError::CudaInitFailed {
-                        index: i,
-                        reason: e.to_string(),
-                    }
-                    .into()
-                }),
+            DeviceRequest::Cuda(i) => {
+                CudaDevice::new_with_stream(i)
+                    .map(Device::Cuda)
+                    .map_err(|e| {
+                        DeviceError::CudaInitFailed {
+                            index: i,
+                            reason: e.to_string(),
+                        }
+                        .into()
+                    })
+            }
             DeviceRequest::Explicit(d) => Ok(d),
         }
     }

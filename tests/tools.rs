@@ -64,7 +64,8 @@ fn fail_tool() -> Result<String> {
         name: "fail_tool".into(),
         attempts: 1,
         reason: "boom".into(),
-    }.into())
+    }
+    .into())
 }
 
 #[tokio::test]

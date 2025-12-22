@@ -404,12 +404,14 @@ impl ZeroShotModernBertModel {
         }
 
         let available_labels: Vec<String> = self.label2id.keys().cloned().collect();
-        let entailment_id = *self.label2id.get("entailment").ok_or_else(|| {
-            ModelMetadataError::MissingLabel {
-                label: "entailment".into(),
-                available: available_labels,
-            }
-        })?;
+        let entailment_id =
+            *self
+                .label2id
+                .get("entailment")
+                .ok_or_else(|| ModelMetadataError::MissingLabel {
+                    label: "entailment".into(),
+                    available: available_labels,
+                })?;
 
         let mut encodings = Vec::new();
         for &label in candidate_labels {
@@ -482,12 +484,14 @@ impl ZeroShotModernBertModel {
         }
 
         let available_labels: Vec<String> = self.label2id.keys().cloned().collect();
-        let entailment_id = *self.label2id.get("entailment").ok_or_else(|| {
-            ModelMetadataError::MissingLabel {
-                label: "entailment".into(),
-                available: available_labels,
-            }
-        })?;
+        let entailment_id =
+            *self
+                .label2id
+                .get("entailment")
+                .ok_or_else(|| ModelMetadataError::MissingLabel {
+                    label: "entailment".into(),
+                    available: available_labels,
+                })?;
 
         let pad_token_id = tokenizer
             .get_padding()

@@ -262,12 +262,14 @@ impl<M: TextGenerationModel + ToolCalling + Send> XmlGenerationPipeline<M> {
         for call in tool_calls {
             // Find the tool
             let available_tools: Vec<String> = tools.iter().map(|t| t.name.clone()).collect();
-            let tool = tools.iter().find(|t| t.name == call.name).ok_or_else(|| {
-                ToolError::NotFound {
-                    name: call.name.clone(),
-                    available: available_tools,
-                }
-            })?;
+            let tool =
+                tools
+                    .iter()
+                    .find(|t| t.name == call.name)
+                    .ok_or_else(|| ToolError::NotFound {
+                        name: call.name.clone(),
+                        available: available_tools,
+                    })?;
 
             // Execute the tool with retries
             let args = call.arguments.clone();
