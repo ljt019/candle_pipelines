@@ -38,7 +38,6 @@ fn sentiment_batch_faster_than_sequential() -> Result<()> {
     let sequential_results: Vec<_> = texts.iter().map(|t| pipeline.predict(t)).collect();
     let sequential_time = start.elapsed();
     let start = Instant::now();
-    let start = Instant::now();
     let batched_results = pipeline.predict_batch(&texts)?;
     let batched_time = start.elapsed();
 
