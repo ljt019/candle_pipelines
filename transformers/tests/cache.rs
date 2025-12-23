@@ -16,11 +16,9 @@ async fn multiple_pipelines_work_independently() -> Result<()> {
         pipelines.push(pipeline);
     }
 
-    // Use first pipeline
     let _ = pipelines[0].completion("Hello").await?;
     assert!(pipelines[0].context_position().await > 0);
 
-    // Other pipelines should have independent context
     for p in pipelines.iter().skip(1) {
         assert_eq!(p.context_position().await, 0);
     }

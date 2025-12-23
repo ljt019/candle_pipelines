@@ -23,4 +23,5 @@ pub use message::Message;
 pub use params::GenerationParams;
 pub use parser::TagParts;
 pub use pipeline::TextGenerationPipeline;
-pub use tools::{tool, tools, ErrorStrategy, Tool};
+pub use tool_macro::{tool, tools};
+pub use tools::{ErrorStrategy, Tool};

@@ -3,8 +3,6 @@ use crate::error::ToolError;
 use futures::future::BoxFuture;
 use std::sync::Arc;
 
-pub use tool_macro::{tool, tools}; // re-export
-
 #[derive(Debug, Clone)]
 pub enum ErrorStrategy {
     Fail,
