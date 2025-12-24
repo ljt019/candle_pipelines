@@ -498,7 +498,8 @@ impl<M: TextGenerationModel + ToolCalling + Send> XmlTextGenerationPipeline<M> {
     }
 
     fn extract_tool_calls(text: &str) -> Result<Vec<ToolCallInvocation>> {
-        let tool_regex = Regex::new(r"(?s)<tool_call>(.*?)</tool_call>")?;
+        let tool_regex = Regex::new(r"(?s)<tool_call>(.*?)</tool_call>")
+            .expect("hardcoded regex is valid");
         let mut tool_calls = Vec::new();
 
         for cap in tool_regex.captures_iter(text) {

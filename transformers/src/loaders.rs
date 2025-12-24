@@ -1,8 +1,7 @@
 use serde::Deserialize;
 use tokio::time::Duration;
 
-use crate::error::{DownloadError, ModelMetadataError, TokenizationError};
-use crate::error::{Result, TransformersError};
+use crate::error::{DownloadError, Result, TokenizationError, TransformersError};
 
 #[derive(Clone)]
 pub struct GenerationConfig {
@@ -138,10 +137,10 @@ impl GenerationConfigLoader {
 
         let eos_token_ids = match raw.eos_token_ids {
             Some(serde_json::Value::Number(n)) => {
-                vec![n.as_u64().ok_or_else(|| ModelMetadataError::InvalidValue {
-                    key: "eos_token_id".into(),
-                    expected: "unsigned integer".into(),
-                    actual: n.to_string(),
+                vec![n.as_u64().ok_or_else(|| {
+                    TransformersError::Unexpected(
+                        format!("Invalid eos_token_id: expected unsigned integer, got {n}").into(),
+                    )
                 })?]
             }
             Some(serde_json::Value::Array(arr)) => arr
@@ -149,11 +148,9 @@ impl GenerationConfigLoader {
                 .enumerate()
                 .map(|(i, v)| {
                     v.as_u64().ok_or_else(|| {
-                        TransformersError::from(ModelMetadataError::InvalidValue {
-                            key: format!("eos_token_ids[{i}]"),
-                            expected: "unsigned integer".into(),
-                            actual: v.to_string(),
-                        })
+                        TransformersError::Unexpected(
+                            format!("Invalid eos_token_ids[{i}]: expected unsigned integer, got {v}").into(),
+                        )
                     })
                 })
                 .collect::<Result<Vec<_>>>()?,

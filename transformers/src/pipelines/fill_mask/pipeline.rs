@@ -1,6 +1,5 @@
 use super::model::FillMaskModel;
-use crate::error::GenerationError;
-use crate::error::Result;
+use crate::error::{Result, TransformersError};
 use tokenizers::Tokenizer;
 
 #[derive(Debug, Clone)]
@@ -20,7 +19,7 @@ impl<M: FillMaskModel> FillMaskPipeline<M> {
         predictions
             .into_iter()
             .next()
-            .ok_or_else(|| GenerationError::NoPredictions.into())
+            .ok_or_else(|| TransformersError::Unexpected("Model returned no predictions".into()))
     }
 
     pub fn predict_batch(&self, texts: &[&str]) -> Result<Vec<Result<FillMaskPrediction>>> {
@@ -29,10 +28,9 @@ impl<M: FillMaskModel> FillMaskPipeline<M> {
             .into_iter()
             .map(|result| {
                 result.and_then(|preds| {
-                    preds
-                        .into_iter()
-                        .next()
-                        .ok_or_else(|| GenerationError::NoPredictions.into())
+                    preds.into_iter().next().ok_or_else(|| {
+                        TransformersError::Unexpected("Model returned no predictions".into())
+                    })
                 })
             })
             .collect::<Vec<_>>())

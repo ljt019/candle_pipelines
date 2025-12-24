@@ -9,8 +9,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use tokenizers::Tokenizer;
 
-use crate::error::{GenerationError, ModelMetadataError, TokenizationError};
-use crate::error::{Result, TransformersError};
+use crate::error::{Result, TokenizationError, TransformersError};
 use crate::pipelines::fill_mask::pipeline::FillMaskPrediction;
 use crate::pipelines::sentiment::pipeline::SentimentResult;
 use crate::pipelines::zero_shot::model::LabelScores;
@@ -71,9 +70,9 @@ impl FillMaskModernBertModel {
             .position(|&id| id == mask_id)
             .ok_or_else(|| {
                 let preview: String = text.chars().take(50).collect();
-                GenerationError::NoMaskToken {
-                    input_preview: preview,
-                }
+                TransformersError::Unexpected(
+                    format!("No [MASK] token in input '{preview}'. Fill-mask requires exactly one [MASK].").into(),
+                )
             })?;
 
         let input_ids = Tensor::new(encoding.get_ids(), &self.device)?.unsqueeze(0)?;
@@ -133,9 +132,9 @@ impl crate::pipelines::fill_mask::model::FillMaskModel for FillMaskModernBertMod
             .position(|&id| id == mask_id)
             .ok_or_else(|| {
                 let preview: String = text.chars().take(50).collect();
-                GenerationError::NoMaskToken {
-                    input_preview: preview,
-                }
+                TransformersError::Unexpected(
+                    format!("No [MASK] token in input '{preview}'. Fill-mask requires exactly one [MASK].").into(),
+                )
             })?;
 
         let input_ids = Tensor::new(encoding.get_ids(), &self.device)?.unsqueeze(0)?;
@@ -208,12 +207,9 @@ impl crate::pipelines::fill_mask::model::FillMaskModel for FillMaskModernBertMod
                         }
                         None => {
                             let preview: String = text.chars().take(50).collect();
-                            error_results[i] = Some(
-                                GenerationError::NoMaskToken {
-                                    input_preview: preview,
-                                }
-                                .into(),
-                            );
+                            error_results[i] = Some(TransformersError::Unexpected(
+                                format!("No [MASK] token in input '{preview}'. Fill-mask requires exactly one [MASK].").into(),
+                            ));
                             mask_indices.push(0);
                             encodings.push(None);
                         }
@@ -237,7 +233,11 @@ impl crate::pipelines::fill_mask::model::FillMaskModel for FillMaskModernBertMod
         if valid_indices.is_empty() {
             return Ok(error_results
                 .into_iter()
-                .map(|e| Err(e.unwrap_or_else(|| GenerationError::NoPredictions.into())))
+                .map(|e| {
+                    Err(e.unwrap_or_else(|| {
+                        TransformersError::Unexpected("Model returned no predictions".into())
+                    }))
+                })
                 .collect());
         }
 
@@ -392,14 +392,11 @@ impl ZeroShotModernBertModel {
         }
 
         let available_labels: Vec<String> = self.label2id.keys().cloned().collect();
-        let entailment_id =
-            *self
-                .label2id
-                .get("entailment")
-                .ok_or_else(|| ModelMetadataError::MissingLabel {
-                    label: "entailment".into(),
-                    available: available_labels,
-                })?;
+        let entailment_id = *self.label2id.get("entailment").ok_or_else(|| {
+            TransformersError::Unexpected(
+                format!("Missing 'entailment' in label2id mapping. Available: {}", available_labels.join(", ")).into(),
+            )
+        })?;
 
         let mut encodings = Vec::new();
         for &label in candidate_labels {
@@ -471,14 +468,11 @@ impl ZeroShotModernBertModel {
         }
 
         let available_labels: Vec<String> = self.label2id.keys().cloned().collect();
-        let entailment_id =
-            *self
-                .label2id
-                .get("entailment")
-                .ok_or_else(|| ModelMetadataError::MissingLabel {
-                    label: "entailment".into(),
-                    available: available_labels,
-                })?;
+        let entailment_id = *self.label2id.get("entailment").ok_or_else(|| {
+            TransformersError::Unexpected(
+                format!("Missing 'entailment' in label2id mapping. Available: {}", available_labels.join(", ")).into(),
+            )
+        })?;
 
         let pad_token_id = tokenizer
             .get_padding()
@@ -522,7 +516,11 @@ impl ZeroShotModernBertModel {
         if valid_pair_indices.is_empty() {
             return Ok(error_results
                 .into_iter()
-                .map(|e| Err(e.unwrap_or_else(|| GenerationError::NoPredictions.into())))
+                .map(|e| {
+                    Err(e.unwrap_or_else(|| {
+                        TransformersError::Unexpected("Model returned no predictions".into())
+                    }))
+                })
                 .collect());
         }
 
@@ -717,9 +715,10 @@ impl SentimentModernBertModel {
         let label = self
             .id2label
             .get(&pred_id.to_string())
-            .ok_or(GenerationError::UnknownLabelId {
-                id: pred_id as i64,
-                available: available_labels,
+            .ok_or_else(|| {
+                TransformersError::Unexpected(
+                    format!("Predicted label ID {} not in id2label. Available: {}", pred_id, available_labels.join(", ")).into(),
+                )
             })?
             .clone();
 
@@ -766,9 +765,10 @@ impl crate::pipelines::sentiment::model::SentimentAnalysisModel for SentimentMod
         let label = self
             .id2label
             .get(&pred_id.to_string())
-            .ok_or(GenerationError::UnknownLabelId {
-                id: pred_id as i64,
-                available: available_labels,
+            .ok_or_else(|| {
+                TransformersError::Unexpected(
+                    format!("Predicted label ID {} not in id2label. Available: {}", pred_id, available_labels.join(", ")).into(),
+                )
             })?
             .clone();
 
@@ -815,7 +815,11 @@ impl crate::pipelines::sentiment::model::SentimentAnalysisModel for SentimentMod
         if valid_indices.is_empty() {
             return Ok(error_results
                 .into_iter()
-                .map(|e| Err(e.unwrap_or_else(|| GenerationError::NoPredictions.into())))
+                .map(|e| {
+                    Err(e.unwrap_or_else(|| {
+                        TransformersError::Unexpected("Model returned no predictions".into())
+                    }))
+                })
                 .collect());
         }
 
@@ -874,11 +878,9 @@ impl crate::pipelines::sentiment::model::SentimentAnalysisModel for SentimentMod
                     });
                 }
                 None => {
-                    results[orig_idx] = Err(GenerationError::UnknownLabelId {
-                        id: pred_id as i64,
-                        available: available_labels,
-                    }
-                    .into());
+                    results[orig_idx] = Err(TransformersError::Unexpected(
+                        format!("Predicted label ID {} not in id2label. Available: {}", pred_id, available_labels.join(", ")).into(),
+                    ));
                 }
             }
         }

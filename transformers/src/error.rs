@@ -1,15 +1,67 @@
-//! The error types for this crate.
+//! Error types for this crate.
 //!
-//! Most functions return [`Result<T>`] which uses `TransformersError` as the error type.
+//! Most functions return [`Result<T>`] which uses [`TransformersError`] as the error type.
 
-use serde::Serialize;
 use thiserror::Error;
+
+/// A [`Result`](std::result::Result) alias using [`TransformersError`] as the error type.
+pub type Result<T> = std::result::Result<T, TransformersError>;
+
+/// The unified error type for all crate errors.
+///
+/// # Example
+///
+/// ```
+/// use transformers::error::{TransformersError, DownloadError};
+///
+/// fn handle_error(e: TransformersError) {
+///     match &e {
+///         TransformersError::Download(DownloadError::Timeout { .. }) => {
+///             // Retry
+///         }
+///         TransformersError::Device(_) => {
+///             // Fall back to CPU
+///         }
+///         TransformersError::Unexpected(_) => {
+///             // Log full chain and report - nothing user can do
+///             eprintln!("Internal error: {e:?}");
+///         }
+///         _ => {}
+///     }
+/// }
+/// ```
+#[derive(Error, Debug)]
+#[non_exhaustive]
+pub enum TransformersError {
+    /// Errors during file download. Users may retry or check connectivity.
+    #[error(transparent)]
+    Download(#[from] DownloadError),
+
+    /// Errors during tokenization. Users may fix malformed input.
+    #[error(transparent)]
+    Tokenization(#[from] TokenizationError),
+
+    /// Errors when using tools. Users may fix tool definitions or parameters.
+    #[error(transparent)]
+    Tool(#[from] ToolError),
+
+    /// Errors when initializing a device. Users may fall back to CPU.
+    #[error(transparent)]
+    Device(#[from] DeviceError),
+
+    /// Internal/unexpected error. Users cannot act on this, report if seen.
+    ///
+    /// The underlying error chain is preserved via [`std::error::Error::source()`]
+    /// for debugging and logging purposes.
+    #[error(transparent)]
+    Unexpected(Box<dyn std::error::Error + Send + Sync>),
+}
 
 /// Errors that can occur during a file download operation.
 ///
-/// This enum represents potential failure scenarios in a file download context,
-/// including general failures, timeouts, and initialization errors.
-#[derive(Error, Debug, Clone, Serialize)]
+/// Users may be able to recover by retrying, checking network connectivity,
+/// or verifying the repository/file names.
+#[derive(Error, Debug, Clone)]
 #[non_exhaustive]
 pub enum DownloadError {
     /// Failed to download a file from a given HF repository.
@@ -24,8 +76,6 @@ pub enum DownloadError {
     },
 
     /// A download operation timed out.
-    ///
-    /// This error occurs when the download operation exceeds the retry limit.
     #[error("Download timed out for '{file}' from '{repo}' after {attempts} attempt(s)")]
     Timeout {
         /// The repository from which the download was attempted.
@@ -44,100 +94,10 @@ pub enum DownloadError {
     },
 }
 
-/// Errors that can occur when loading model metadata.
-///
-/// This enum represents potential failure scenarios in model metadata loading,
-/// including missing keys, invalid values, and missing labels.
-#[derive(Error, Debug, Clone, Serialize)]
-#[non_exhaustive]
-pub enum ModelMetadataError {
-    /// Missing required metadata key for a model.
-    #[error("Missing required metadata key '{key}' for {model_type} model. Available: {}", format_keys(.available))]
-    MissingKey {
-        /// The key that is missing from the model metadata.
-        key: String,
-        /// The type of model that is missing the key.
-        model_type: String,
-        /// The available keys for the model.
-        available: Vec<String>,
-    },
-
-    /// Invalid value for a metadata key.
-    #[error("Invalid value for '{key}': expected {expected}, got {actual}")]
-    InvalidValue {
-        /// The key that has an invalid value.
-        key: String,
-        /// The expected value for the key.
-        expected: String,
-        /// The actual value for the key.
-        actual: String,
-    },
-
-    /// Missing label in label2id mapping.
-    #[error("Missing '{label}' in label2id mapping. Available: {}", .available.join(", "))]
-    MissingLabel {
-        /// The label that is missing from the label2id mapping.
-        label: String,
-        /// The available labels for the model.
-        available: Vec<String>,
-    },
-
-    /// Missing EOS token IDs in generation config.
-    #[error("Missing 'eos_token_ids' in generation config for {model}. Cannot determine when to stop generation.")]
-    MissingEosTokens {
-        /// The model that is missing the EOS token IDs.
-        model: String,
-    },
-}
-
-fn format_keys(keys: &[String]) -> String {
-    if keys.len() <= 5 {
-        keys.join(", ")
-    } else {
-        format!("{}, ... ({} more)", keys[..5].join(", "), keys.len() - 5)
-    }
-}
-
-/// Errors that can occur when loading chat template.
-///
-/// This enum represents potential failure scenarios in chat template loading,
-/// including missing template, parsing failures, and rendering failures.
-#[derive(Error, Debug, Clone, Serialize)]
-#[non_exhaustive]
-pub enum ChatTemplateError {
-    /// Missing chat template in tokenizer config.
-    #[error("Missing 'chat_template' in tokenizer config for {model}")]
-    MissingTemplate {
-        /// The model that is missing the chat template.
-        model: String,
-    },
-
-    /// Failed to parse chat template.
-    #[error("Failed to parse chat template for {model}: {reason}")]
-    ParseFailed {
-        /// The model that failed to parse the chat template.
-        model: String,
-        /// The reason why the chat template failed to parse.
-        reason: String,
-    },
-
-    /// Failed to render chat template.
-    #[error("Failed to render template for {model} ({message_count} messages): {reason}")]
-    RenderFailed {
-        /// The model that failed to render the chat template.
-        model: String,
-        /// The number of messages in the chat template.
-        message_count: usize,
-        /// The reason why the chat template failed to render.
-        reason: String,
-    },
-}
-
 /// Errors that can occur when tokenizing input text.
 ///
-/// This enum represents potential failure scenarios in tokenization,
-/// including loading failures, encoding failures, and decoding failures.
-#[derive(Error, Debug, Clone, Serialize)]
+/// Users may be able to recover by fixing malformed input or checking file paths.
+#[derive(Error, Debug, Clone)]
 #[non_exhaustive]
 pub enum TokenizationError {
     /// Failed to load tokenizer from a given path.
@@ -178,63 +138,11 @@ impl TokenizationError {
     }
 }
 
-/// Errors that can occur when generating text.
-///
-/// This enum represents potential failure scenarios in text generation,
-/// including max tokens reached, no EOS tokens, no mask token, no predictions,
-/// unknown label ID, and batch item failed.
-#[derive(Error, Debug, Clone, Serialize)]
-#[non_exhaustive]
-pub enum GenerationError {
-    /// Reached max_len after trying to generate requested tokens.
-    #[error("Reached max_len ({max_len} tokens) after generating {generated} tokens. Increase max_len or shorten prompt.")]
-    MaxTokensReached {
-        /// The maximum length allowed.
-        max_len: usize,
-        /// The number of tokens generated.
-        generated: usize,
-    },
-
-    /// No EOS tokens configured for model.
-    #[error("No EOS tokens configured for model. Cannot determine when to stop.")]
-    NoEosTokens,
-
-    /// No [MASK] token in input.
-    #[error("No [MASK] token in input '{input_preview}'. Fill-mask requires exactly one [MASK].")]
-    NoMaskToken {
-        /// The preview of the input text that is missing the [MASK] token.
-        input_preview: String,
-    },
-
-    /// Model returned no predictions.
-    #[error("Model returned no predictions")]
-    NoPredictions,
-
-    /// Predicted label ID not in id2label.
-    #[error("Predicted label ID {id} not in id2label. Available: {}", .available.join(", "))]
-    UnknownLabelId {
-        /// The predicted label ID that is not in the id2label mapping.
-        id: i64,
-        /// The available labels for the model.
-        available: Vec<String>,
-    },
-
-    /// Batch item failed.
-    #[error("Batch item {index} failed: {reason}")]
-    BatchItemFailed {
-        /// The index of the batch item that failed.
-        index: usize,
-        /// The reason why the batch item failed.
-        reason: String,
-    },
-}
-
 /// Errors that can occur when using tools.
 ///
-/// This enum represents potential failure scenarios in tool usage,
-/// including tool not found, no tools registered, tool execution failed,
-/// invalid parameters, and schema error.
-#[derive(Error, Debug, Clone, Serialize)]
+/// Users define and register tools, so they can act on these errors
+/// by fixing tool definitions, parameters, or registration.
+#[derive(Error, Debug, Clone)]
 #[non_exhaustive]
 pub enum ToolError {
     /// Tool not found.
@@ -280,15 +188,14 @@ pub enum ToolError {
     },
 }
 
-/// Errors that can occur when initializing a CUDA device.
+/// Errors that can occur when initializing a device.
 ///
-/// This enum represents potential failure scenarios in CUDA device initialization,
-/// including CUDA driver not found and CUDA device index out of bounds.
-#[derive(Error, Debug, Clone, Serialize)]
+/// Users can recover by falling back to CPU via [`DeviceRequest::Cpu`].
+#[derive(Error, Debug, Clone)]
 #[non_exhaustive]
 pub enum DeviceError {
-    /// Failed to init cuda device.
-    #[error("Failed to init CUDA device {index}: {reason}. Try DeviceRequest::Cpu as fallback.")]
+    /// Failed to init CUDA device.
+    #[error("Failed to init CUDA device {index}: {reason}. Try CPU as fallback.")]
     CudaInitFailed {
         /// The index of the CUDA device that failed to initialize.
         index: usize,
@@ -297,123 +204,47 @@ pub enum DeviceError {
     },
 }
 
-/// The unified error type for all crate errors.
-///
-/// This enum wraps domain-specific errors ([`DownloadError`], [`GenerationError`], etc.)
-/// and errors from external crates (Candle, IO, JSON). Use `?` to propagate or match
-/// on variants for granular handling.
-#[derive(Error, Debug, Serialize)]
-#[non_exhaustive]
-pub enum TransformersError {
-    /// Errors that can occur during a file download operation.
-    #[error(transparent)]
-    Download(#[from] DownloadError),
-
-    /// Errors that can occur when loading model metadata.
-    #[error(transparent)]
-    ModelMetadata(#[from] ModelMetadataError),
-
-    /// Errors that can occur when loading chat template.
-    #[error(transparent)]
-    ChatTemplate(#[from] ChatTemplateError),
-
-    /// Errors that can occur when tokenizing input text.
-    #[error(transparent)]
-    Tokenization(#[from] TokenizationError),
-
-    /// Errors that can occur when generating text.
-    #[error(transparent)]
-    Generation(#[from] GenerationError),
-
-    /// Errors that can occur when using tools.
-    #[error(transparent)]
-    Tool(#[from] ToolError),
-
-    /// Errors that can occur when initializing a CUDA device.
-    #[error(transparent)]
-    Device(#[from] DeviceError),
-
-    /// Errors that can occur when using Candle.
-    #[error("Candle error: {0}")]
-    Candle(String),
-
-    /// Errors that can occur when using IO.
-    #[error("IO error: {0}")]
-    Io(String),
-
-    /// Errors that can occur when using JSON.
-    #[error("JSON error: {0}")]
-    SerdeJson(String),
-
-    /// JSON schema error.
-    #[error("JSON schema error: {0}")]
-    JsonSchema(String),
-
-    /// JSON parse error.
-    #[error("JSON parse error: {0}")]
-    JsonParse(String),
-
-    /// Invalid generation parameters.
-    #[error("Invalid generation parameters: {0}")]
-    InvalidParams(String),
-}
-
-/// A [`Result`](std::result::Result) alias using [`TransformersError`] as the error type.
-pub type Result<T> = std::result::Result<T, TransformersError>;
-
 impl From<candle_core::Error> for TransformersError {
     fn from(value: candle_core::Error) -> Self {
-        TransformersError::Candle(value.to_string())
+        TransformersError::Unexpected(Box::new(value))
     }
 }
 
 impl From<std::io::Error> for TransformersError {
     fn from(value: std::io::Error) -> Self {
-        TransformersError::Io(value.to_string())
+        TransformersError::Unexpected(Box::new(value))
     }
 }
 
 impl From<serde_json::Error> for TransformersError {
     fn from(value: serde_json::Error) -> Self {
-        TransformersError::SerdeJson(value.to_string())
+        TransformersError::Unexpected(Box::new(value))
     }
 }
 
 impl From<hf_hub::api::sync::ApiError> for TransformersError {
     fn from(value: hf_hub::api::sync::ApiError) -> Self {
-        DownloadError::Failed {
-            repo: "unknown".into(),
-            file: "unknown".into(),
+        DownloadError::ApiInit {
             reason: value.to_string(),
         }
         .into()
     }
 }
 
-impl From<regex::Error> for TransformersError {
-    fn from(value: regex::Error) -> Self {
-        GenerationError::BatchItemFailed {
-            index: 0,
-            reason: value.to_string(),
-        }
-        .into()
+impl From<Box<dyn std::error::Error + Send + Sync>> for TransformersError {
+    fn from(value: Box<dyn std::error::Error + Send + Sync>) -> Self {
+        TransformersError::Unexpected(value)
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+impl From<&str> for TransformersError {
+    fn from(value: &str) -> Self {
+        TransformersError::Unexpected(value.to_string().into())
+    }
+}
 
-    #[test]
-    fn encode_failed_truncates_long_input() {
-        let long_input = "a".repeat(200);
-        let err = TokenizationError::encode_failed(&long_input, "invalid utf-8");
-
-        match err {
-            TokenizationError::EncodeFailed { input_preview, .. } => {
-                assert_eq!(input_preview.len(), 50);
-            }
-            _ => panic!("wrong variant"),
-        }
+impl From<String> for TransformersError {
+    fn from(value: String) -> Self {
+        TransformersError::Unexpected(value.into())
     }
 }

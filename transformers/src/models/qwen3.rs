@@ -8,8 +8,7 @@ use std::io::{Read, Seek};
 use std::sync::Arc;
 use tokenizers::Tokenizer;
 
-use crate::error::Result;
-use crate::error::{ChatTemplateError, ModelMetadataError};
+use crate::error::{Result, TransformersError};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Qwen3Size {
@@ -94,9 +93,9 @@ impl Qwen3Model {
         let config_json: serde_json::Value = serde_json::from_str(&tokenizer_config_content)?;
 
         let chat_template_str = config_json["chat_template"].as_str().ok_or_else(|| {
-            ChatTemplateError::MissingTemplate {
-                model: "Qwen3".into(),
-            }
+            TransformersError::Unexpected(
+                "Missing 'chat_template' in tokenizer config for Qwen3".into(),
+            )
         })?;
 
         let mut chat_template_owned = chat_template_str.to_string();
@@ -121,33 +120,33 @@ impl Qwen3Model {
 
         let chat_template_static = Box::leak(chat_template_owned.into_boxed_str());
         env.add_template("chat", chat_template_static)
-            .map_err(|e| ChatTemplateError::ParseFailed {
-                model: "Qwen3".into(),
-                reason: e.to_string(),
+            .map_err(|e| {
+                TransformersError::Unexpected(
+                    format!("Failed to parse chat template for Qwen3: {e}").into(),
+                )
             })?;
 
         Ok(Arc::new(env))
     }
     pub async fn from_gguf<R: Read + Seek>(reader: &mut R, device: &Device) -> Result<Self> {
         let content = gguf_file::Content::read(reader)?;
-        let available_keys: Vec<String> = content.metadata.keys().cloned().collect();
 
         let num_layers = content
             .metadata
             .get("qwen3.block_count")
-            .ok_or_else(|| ModelMetadataError::MissingKey {
-                key: "qwen3.block_count".into(),
-                model_type: "Qwen3".into(),
-                available: available_keys.clone(),
+            .ok_or_else(|| {
+                TransformersError::Unexpected(
+                    "Missing 'qwen3.block_count' in Qwen3 model metadata".into(),
+                )
             })?
             .to_u32()? as usize;
         let max_seq_len = content
             .metadata
             .get("qwen3.context_length")
-            .ok_or_else(|| ModelMetadataError::MissingKey {
-                key: "qwen3.context_length".into(),
-                model_type: "Qwen3".into(),
-                available: available_keys.clone(),
+            .ok_or_else(|| {
+                TransformersError::Unexpected(
+                    "Missing 'qwen3.context_length' in Qwen3 model metadata".into(),
+                )
             })?
             .to_u32()? as usize;
         let dtype = match content.metadata.get("general.dtype") {
@@ -198,24 +197,22 @@ impl Qwen3Model {
         .load()
         .await?;
 
-        let available_keys: Vec<String> = content.metadata.keys().cloned().collect();
-
         let num_layers = content
             .metadata
             .get("qwen3.block_count")
-            .ok_or_else(|| ModelMetadataError::MissingKey {
-                key: "qwen3.block_count".into(),
-                model_type: "Qwen3".into(),
-                available: available_keys.clone(),
+            .ok_or_else(|| {
+                TransformersError::Unexpected(
+                    "Missing 'qwen3.block_count' in Qwen3 model metadata".into(),
+                )
             })?
             .to_u32()? as usize;
         let max_seq_len = content
             .metadata
             .get("qwen3.context_length")
-            .ok_or_else(|| ModelMetadataError::MissingKey {
-                key: "qwen3.context_length".into(),
-                model_type: "Qwen3".into(),
-                available: available_keys.clone(),
+            .ok_or_else(|| {
+                TransformersError::Unexpected(
+                    "Missing 'qwen3.context_length' in Qwen3 model metadata".into(),
+                )
             })?
             .to_u32()? as usize;
         let dtype = match content.metadata.get("general.dtype") {
@@ -421,9 +418,10 @@ impl TextGenerationModel for Qwen3Model {
         let rendered = self
             .chat_template_env
             .get_template("chat")
-            .map_err(|e| ChatTemplateError::ParseFailed {
-                model: "Qwen3".into(),
-                reason: e.to_string(),
+            .map_err(|e| {
+                TransformersError::Unexpected(
+                    format!("Failed to get chat template for Qwen3: {e}").into(),
+                )
             })?
             .render(context! {
                 messages => messages_dicts,
@@ -431,10 +429,10 @@ impl TextGenerationModel for Qwen3Model {
                 enable_thinking => enable_thinking,
                 tools => self.registered_tools(),
             })
-            .map_err(|e| ChatTemplateError::RenderFailed {
-                model: "Qwen3".into(),
-                message_count,
-                reason: e.to_string(),
+            .map_err(|e| {
+                TransformersError::Unexpected(
+                    format!("Failed to render template for Qwen3 ({message_count} messages): {e}").into(),
+                )
             })?;
 
         Ok(rendered)

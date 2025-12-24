@@ -2475,14 +2475,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sandbox"
-version = "0.1.0"
-dependencies = [
- "tokio",
- "transformers",
-]
-
-[[package]]
 name = "schannel"
 version = "0.1.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"

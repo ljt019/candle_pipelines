@@ -1,8 +1,7 @@
 use super::model::{LanguageModelContext, TextGenerationModel};
 use super::params::{apply_repeat_penalty, initialize_logits_processor, GenerationParams};
 use super::stats::GenerationStats;
-use crate::error::Result;
-use crate::error::{GenerationError, TokenizationError};
+use crate::error::{Result, TokenizationError, TransformersError};
 use candle_core::Tensor;
 use std::sync::Arc;
 use tokenizers::Tokenizer;
@@ -114,7 +113,9 @@ impl<M: TextGenerationModel> BasePipeline<M> {
 
         let eos_tokens = self.model.lock().await.get_eos_tokens();
         if eos_tokens.is_empty() {
-            return Err(GenerationError::NoEosTokens.into());
+            return Err(TransformersError::Unexpected(
+                "No EOS tokens configured for model. Cannot determine when to stop.".into(),
+            ));
         }
         for _ in 0..params.max_len {
             if eos_tokens.contains(&next_token) {
@@ -192,7 +193,9 @@ impl<M: TextGenerationModel> BasePipeline<M> {
             let params = gen_params.lock().await.clone();
             let eos_tokens = model.lock().await.get_eos_tokens();
             if eos_tokens.is_empty() {
-                Err(GenerationError::NoEosTokens)?;
+                Err(TransformersError::Unexpected(
+                    "No EOS tokens configured for model. Cannot determine when to stop.".into(),
+                ))?;
             }
             const CHUNK_SIZE: usize = 64;
 

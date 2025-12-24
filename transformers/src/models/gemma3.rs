@@ -10,8 +10,7 @@ use minijinja_contrib::{add_to_environment, pycompat};
 use tokenizers::Tokenizer;
 use tokio::fs;
 
-use crate::error::Result;
-use crate::error::{ChatTemplateError, ModelMetadataError};
+use crate::error::{Result, TransformersError};
 use crate::loaders::GenerationConfig;
 use crate::loaders::{GenerationConfigLoader, GgufModelLoader, HfLoader, TokenizerLoader};
 use crate::pipelines::text_generation::model::{LanguageModelContext, TextGenerationModel};
@@ -92,16 +91,14 @@ pub struct Gemma3Model {
 
 impl Gemma3Model {
     fn parse_metadata(content: &gguf_file::Content, device: &Device) -> Result<ModelInfo> {
-        let available_keys: Vec<String> = content.metadata.keys().cloned().collect();
-
         let num_layers = content
             .metadata
             .get("gemma3.block_count")
             .and_then(|v| v.to_u32().ok())
-            .ok_or_else(|| ModelMetadataError::MissingKey {
-                key: "gemma3.block_count".into(),
-                model_type: "Gemma3".into(),
-                available: available_keys.clone(),
+            .ok_or_else(|| {
+                TransformersError::Unexpected(
+                    "Missing 'gemma3.block_count' in Gemma3 model metadata".into(),
+                )
             })? as usize;
 
         let max_seq_len = content
@@ -143,9 +140,9 @@ impl Gemma3Model {
         let config_json: serde_json::Value = serde_json::from_str(&tokenizer_config_content)?;
 
         let chat_template_str = config_json["chat_template"].as_str().ok_or_else(|| {
-            ChatTemplateError::MissingTemplate {
-                model: "Gemma3".into(),
-            }
+            TransformersError::Unexpected(
+                "Missing 'chat_template' in tokenizer config for Gemma3".into(),
+            )
         })?;
 
         let mut env = Environment::new();
@@ -155,9 +152,10 @@ impl Gemma3Model {
         env.add_filter("tojson", minijinja::filters::tojson);
 
         env.add_template_owned("chat", chat_template_str.to_string())
-            .map_err(|e| ChatTemplateError::ParseFailed {
-                model: "Gemma3".into(),
-                reason: e.to_string(),
+            .map_err(|e| {
+                TransformersError::Unexpected(
+                    format!("Failed to parse chat template for Gemma3: {e}").into(),
+                )
             })?;
 
         Ok(Arc::new(env))
@@ -173,10 +171,9 @@ impl Gemma3Model {
 
     fn ensure_eos_tokens(config: &GenerationConfig) -> Result<()> {
         if config.eos_token_ids.is_empty() {
-            return Err(ModelMetadataError::MissingEosTokens {
-                model: "Gemma3".into(),
-            }
-            .into());
+            return Err(TransformersError::Unexpected(
+                "Missing 'eos_token_ids' in generation config for Gemma3".into(),
+            ));
         }
 
         Ok(())
@@ -315,18 +312,19 @@ impl TextGenerationModel for Gemma3Model {
         let rendered = self
             .chat_template_env
             .get_template("chat")
-            .map_err(|e| ChatTemplateError::ParseFailed {
-                model: "Gemma3".into(),
-                reason: e.to_string(),
+            .map_err(|e| {
+                TransformersError::Unexpected(
+                    format!("Failed to get chat template for Gemma3: {e}").into(),
+                )
             })?
             .render(context! {
                 messages => messages,
                 add_generation_prompt => true,
             })
-            .map_err(|e| ChatTemplateError::RenderFailed {
-                model: "Gemma3".into(),
-                message_count,
-                reason: e.to_string(),
+            .map_err(|e| {
+                TransformersError::Unexpected(
+                    format!("Failed to render template for Gemma3 ({message_count} messages): {e}").into(),
+                )
             })?;
         Ok(rendered)
     }
