@@ -59,7 +59,9 @@ async fn tool_registration() -> Result<()> {
 
 #[tool(retries = 1)]
 fn fail_tool() -> Result<String> {
-    Err(TransformersError::Tool("fail_tool failed: boom".to_string()))
+    Err(TransformersError::Tool(
+        "fail_tool failed: boom".to_string(),
+    ))
 }
 
 #[tokio::test]

@@ -42,10 +42,9 @@ impl<M: FillMaskModel> FillMaskPipeline<M> {
     /// Returns an error if the input has no `[MASK]` token or tokenization fails.
     pub fn predict(&self, text: &str) -> Result<FillMaskPrediction> {
         let predictions = self.predict_top_k(text, 1)?;
-        predictions
-            .into_iter()
-            .next()
-            .ok_or_else(|| TransformersError::Unexpected("Model returned no predictions".to_string()))
+        predictions.into_iter().next().ok_or_else(|| {
+            TransformersError::Unexpected("Model returned no predictions".to_string())
+        })
     }
 
     /// Predict the most likely token for multiple texts.
