@@ -12,7 +12,7 @@ pub type Result<T> = std::result::Result<T, TransformersError>;
 /// # Example
 ///
 /// ```rust,no_run
-/// use transformers::error::{TransformersError, Result};
+/// use transformers::error::TransformersError;
 ///
 /// fn handle_error(e: TransformersError) {
 ///     match &e {
@@ -31,6 +31,9 @@ pub type Result<T> = std::result::Result<T, TransformersError>;
 ///         TransformersError::Unexpected(_) => {
 ///             // Internal error - report bug
 ///             eprintln!("Internal error: {e}");
+///         }
+///         _ => {
+///             // Future error variants
 ///         }
 ///     }
 /// }
