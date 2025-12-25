@@ -1,96 +1,179 @@
-//! Text generation pipeline for generating human-like text completions.
+//! Text generation pipeline for LLMs.
 //!
-//! This module provides functionality for generating text using large language models,
-//! including both single completions and streaming outputs. It supports various generation
-//! strategies, XML parsing for structured outputs, and tool calling capabilities.
+//! Generate text from prompts or multi-turn conversations.
+//! Supports streaming, tool calling, and configurable sampling parameters.
 //!
-//! ## Main Types
-//!
-//! - [`TextGenerationPipeline`] - High-level interface for text generation
-//! - [`XmlGenerationPipeline`] - Specialized pipeline for XML-structured generation
-//! - [`TextGenerationPipelineBuilder`] - Builder pattern for pipeline configuration
-//! - [`CompletionStream`] - Stream of generated tokens for real-time output
-//! - [`GenerationParams`] - Parameters controlling generation behavior
-//! - [`Tool`] - Trait for implementing function calling capabilities
-//!
-//! ## Usage Example
+//! # Quick Start
 //!
 //! ```rust,no_run
-//! use transformers::pipelines::text_generation::*;
-//! use transformers::Result;
+//! use transformers::text_generation::{TextGenerationPipelineBuilder, Qwen3Size};
 //!
-//! #[tokio::main]
-//! async fn main() -> Result<()> {
-//!     // Create a text generation pipeline
-//!     let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
-//!         .temperature(0.7)
-//!         .max_len(100)
-//!         .build()
-//!         .await?;
+//! # #[tokio::main]
+//! # async fn main() -> transformers::error::Result<()> {
+//! let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
+//!     .build()
+//!     .await?;
 //!
-//!     // Generate text completion
-//!     let completion = pipeline.completion("Once upon a time").await?;
-//!     println!("Generated: {}", completion);
-//!
-//!     // Stream generation in real-time
-//!     let mut stream = pipeline.completion_stream("Tell me about Rust.").await?;
-//!     while let Some(chunk) = stream.next().await {
-//!         print!("{}", chunk?);
-//!     }
-//!     Ok(())
-//! }
+//! let response = pipeline.completion("Explain quantum computing briefly.").await?;
+//! println!("{}", response);
+//! # Ok(())
+//! # }
 //! ```
+//!
+//! # Multi-Turn Chat
+//!
+//! Use [`Message`] to build conversations:
+//!
+//! ```rust,no_run
+//! # use transformers::text_generation::{TextGenerationPipelineBuilder, Qwen3Size, Message};
+//! # #[tokio::main]
+//! # async fn main() -> transformers::error::Result<()> {
+//! # let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B).build().await?;
+//! let mut messages = vec![
+//!     Message::system("You are a helpful assistant."),
+//!     Message::user("What is Rust?"),
+//! ];
+//!
+//! let response = pipeline.completion(&messages).await?;
+//!
+//! // Continue the conversation
+//! messages.push(Message::assistant(&response));
+//! messages.push(Message::user("What makes it memory-safe?"));
+//!
+//! let followup_response = pipeline.completion(&messages).await?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Generation Parameters
+//!
+//! Configure sampling via the builder:
+//!
+//! ```rust,no_run
+//! # use transformers::text_generation::{TextGenerationPipelineBuilder, Qwen3Size};
+//! # #[tokio::main]
+//! # async fn main() -> transformers::error::Result<()> {
+//! let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
+//!     .temperature(0.8)    // randomness (0.0 = deterministic)
+//!     .top_k(50)           // sample from top 50 tokens
+//!     .top_p(0.9)          // nucleus sampling
+//!     .max_len(1024)       // max tokens to generate
+//!     .repeat_penalty(1.1) // discourage repetition
+//!     .build()
+//!     .await?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Streaming
+//!
+//! Get tokens as they're generated:
+//!
+//! ```rust,no_run
+//! # use transformers::text_generation::{TextGenerationPipelineBuilder, Qwen3Size};
+//! # #[tokio::main]
+//! # async fn main() -> transformers::error::Result<()> {
+//! # let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B).build().await?;
+//! let mut stream = pipeline.completion_stream("Write a poem about Rust.").await?;
+//!
+//! while let Some(token) = stream.next().await {
+//!     print!("{}", token?);
+//! }
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Tool Calling
+//!
+//! Let the model call your functions:
+//!
+//! ```rust,no_run
+//! use transformers::text_generation::{tool, tools, TextGenerationPipelineBuilder, Qwen3Size};
+//! use transformers::error::Result;
+//!
+//! #[tool]
+//! /// Get current weather for a city.
+//! fn get_weather(city: String) -> Result<String> {
+//!     Ok(format!("Weather in {}: 72°F, sunny", city))
+//! }
+//!
+//! # #[tokio::main]
+//! # async fn main() -> Result<()> {
+//! let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
+//!     .build()
+//!     .await?;
+//!
+//! pipeline.register_tools(tools![get_weather]).await;
+//!
+//! let response = pipeline
+//!     .completion_with_tools("What's the weather in Tokyo?")
+//!     .await?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # XML Structured Output
+//!
+//! Parse XML tags in model output with [`XmlTextGenerationPipeline`]:
+//!
+//! ```rust,no_run
+//! # use transformers::text_generation::{TextGenerationPipelineBuilder, Qwen3Size, TagParts};
+//! # #[tokio::main]
+//! # async fn main() -> transformers::error::Result<()> {
+//! let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
+//!     .build_xml(&["think", "answer"])  // tags to parse
+//!     .await?;
+//!
+//! let events = pipeline.completion("Solve 2+2. Think step by step. Put your final answer in <answer></answer> tags.").await?;
+//!
+//! for event in events {
+//!     match (event.tag(), event.part()) {
+//!         (Some("think"), TagParts::Content) => print!("[thinking] {}", event.get_content()),
+//!         (Some("answer"), TagParts::Content) => print!("[answer] {}", event.get_content()),
+//!         // Regular content outside of any tags
+//!         (None, TagParts::Content) => print!("{}", event.get_content()),
+//!         _ => {}
+//!     }
+//! }
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Supported Models
+//!
+//! | Model | Sizes | Builder Method |
+//! |-------|-------|----------------|
+//! | Qwen3 | `0.6B`, `1.7B`, `4B`, `8B`, `14B`, `32B` | [`TextGenerationPipelineBuilder::qwen3`] |
+//! | Gemma3 | `1B`, `4B`, `12B`, `27B` | [`TextGenerationPipelineBuilder::gemma3`] |
 
-pub mod base_pipeline;
-pub mod builder;
-pub mod model;
-pub mod params;
-pub mod parser;
-pub mod pipeline;
-pub mod stats;
-pub mod streaming;
-pub mod tools;
-pub mod xml_pipeline;
+// ============ Internal API ============
 
-pub use crate::models::{Gemma3Size, Qwen3Size};
-pub use crate::tools;
+pub(crate) mod base_pipeline;
+pub(crate) mod builder;
+pub(crate) mod message;
+pub(crate) mod model;
+pub(crate) mod params;
+pub(crate) mod parser;
+pub(crate) mod pipeline;
+pub(crate) mod stats;
+pub(crate) mod streaming;
+pub(crate) mod tools;
+pub(crate) mod xml_pipeline;
+
+// For tool_macro
+#[doc(hidden)]
+pub use schemars;
+#[doc(hidden)]
+pub use tools::ToolFuture;
+
+// ============ Public API ============
+
+pub use crate::models::{Gemma3, Gemma3Size, Qwen3, Qwen3Size};
 pub use builder::TextGenerationPipelineBuilder;
+pub use message::Message;
 pub use params::GenerationParams;
-pub use pipeline::{Input, TextGenerationPipeline};
-pub use stats::GenerationStats;
-pub use streaming::{CompletionStream, EventStream};
-pub use xml_pipeline::XmlGenerationPipeline;
-
-// Re-export the procedural macro (functions as an item in Rust 2018+).
-pub use crate::tool;
-
-// Re-export `futures::StreamExt` so users iterating over streaming outputs
-// get the `next`/`try_next` extension methods automatically when they
-// glob-import this module.
-pub use futures::StreamExt;
-pub use futures::TryStreamExt;
-
-// Re-export commonly used types and traits
-pub use crate::{Message, MessageVecExt};
-
-// Re-export Result type for convenience
-pub use crate::Result;
-
-// Re-export std::io::Write for flushing stdout in examples
-pub use std::io::Write;
-
-pub use parser::{Event, TagParts, XmlParser, XmlParserBuilder};
-pub use tools::{ErrorStrategy, IntoTool, Tool, ToolCalling, ToolFuture};
-
-#[macro_export]
-macro_rules! tools {
-    ($($tool:ident),+ $(,)?) => {
-        vec![
-            $(
-                $tool::__tool()
-            ),+
-        ]
-    };
-}
-
-// Note: No need to re-export tools macro since it's already defined above
+pub use parser::TagParts;
+pub use pipeline::TextGenerationPipeline;
+pub use tool_macro::{tool, tools};
+pub use tools::{ErrorStrategy, Tool};
+pub use xml_pipeline::XmlTextGenerationPipeline;

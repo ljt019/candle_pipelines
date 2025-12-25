@@ -1,16 +1,13 @@
-//! Integration tests for fill mask pipeline
-//! Run with: cargo test --features integration
-
-#![cfg(feature = "integration")]
+#![cfg(feature = "cuda")]
 
 use std::time::Instant;
-use transformers::pipelines::fill_mask::*;
-use transformers::pipelines::utils::{BasePipelineBuilder, DeviceSelectable};
+use transformers::error::Result;
+use transformers::fill_mask::{FillMaskPipelineBuilder, ModernBertSize};
 
 #[test]
-fn fill_mask_basic() -> transformers::Result<()> {
+fn fill_mask_basic() -> Result<()> {
     let pipeline = FillMaskPipelineBuilder::modernbert(ModernBertSize::Base)
-        .cuda_device(0)
+        .cuda(0)
         .build()?;
 
     let res = pipeline.predict("The capital of France is [MASK].")?;
@@ -20,9 +17,9 @@ fn fill_mask_basic() -> transformers::Result<()> {
 }
 
 #[test]
-fn fill_mask_empty_input_errors() -> transformers::Result<()> {
+fn fill_mask_empty_input_errors() -> Result<()> {
     let pipeline = FillMaskPipelineBuilder::modernbert(ModernBertSize::Base)
-        .cuda_device(0)
+        .cuda(0)
         .build()?;
 
     assert!(pipeline.predict("").is_err());
@@ -30,9 +27,9 @@ fn fill_mask_empty_input_errors() -> transformers::Result<()> {
 }
 
 #[test]
-fn fill_mask_batch_faster_than_sequential() -> transformers::Result<()> {
+fn fill_mask_batch_faster_than_sequential() -> Result<()> {
     let pipeline = FillMaskPipelineBuilder::modernbert(ModernBertSize::Base)
-        .cuda_device(0)
+        .cuda(0)
         .build()?;
 
     let texts: Vec<&str> = vec![
@@ -46,27 +43,22 @@ fn fill_mask_batch_faster_than_sequential() -> transformers::Result<()> {
         "Coffee contains [MASK].",
     ];
 
-    // Warmup
     let _ = pipeline.predict(texts[0]);
 
-    // Sequential
     let start = Instant::now();
     let sequential_results: Vec<_> = texts.iter().map(|t| pipeline.predict(t)).collect();
     let sequential_time = start.elapsed();
 
-    // Batched
     let start = Instant::now();
     let batched_results = pipeline.predict_batch(&texts)?;
     let batched_time = start.elapsed();
 
-    // Verify correctness
     for (seq, batch) in sequential_results.iter().zip(batched_results.iter()) {
         let seq = seq.as_ref().unwrap();
         let batch = batch.as_ref().unwrap();
         assert_eq!(seq.word, batch.word, "Predicted words should match");
     }
 
-    // Verify batching is faster
     assert!(
         batched_time < sequential_time,
         "Batching should be faster: batched={:?}, sequential={:?}",

@@ -1,19 +1,16 @@
 use std::io::Write;
-use transformers::pipelines::text_generation::*;
-use transformers::pipelines::utils::DeviceSelectable;
-use transformers::Result;
 
-#[tool(on_error = ErrorStrategy::Fail, retries = 5)]
+use transformers::error::Result;
+use transformers::text_generation::{tool, tools, ErrorStrategy};
+use transformers::text_generation::{Qwen3Size, TextGenerationPipelineBuilder};
+
+#[tool(retries = 5)]
 /// Get the weather for a given city.
 fn get_humidity(city: String) -> Result<String> {
     Ok(format!("The humidity is 1% in {}.", city))
 }
 
-/*
-    defaults to 3 retries, and ReturnToModel error strategy
-*/
-
-#[tool]
+#[tool] // defaults to 3 retries
 /// Get the weather for a given city in degrees celsius.
 fn get_temperature(city: String) -> Result<String> {
     Ok(format!(
@@ -28,7 +25,8 @@ async fn main() -> Result<()> {
 
     let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
         .max_len(8192)
-        .cuda_device(0)
+        .cuda(0)
+        .tool_error_strategy(ErrorStrategy::ReturnToModel) // let model handle tool errors
         .build()
         .await?;
 
@@ -36,7 +34,7 @@ async fn main() -> Result<()> {
 
     pipeline
         .register_tools(tools![get_temperature, get_humidity])
-        .await?;
+        .await;
 
     let mut stream = pipeline
         .completion_stream_with_tools("What's the temp and humidity like in Tokyo?")
@@ -49,7 +47,7 @@ async fn main() -> Result<()> {
         std::io::stdout().flush().unwrap();
     }
 
-    pipeline.unregister_tools(tools![get_temperature]).await?;
+    pipeline.unregister_tools(tools![get_temperature]).await;
 
     let mut stream = pipeline
         .completion_stream_with_tools("What's the temp and humidity like in Tokyo?")

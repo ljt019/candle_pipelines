@@ -1,9 +1,17 @@
+//! Procedural macros for defining tools that can be called by language models.
+//!
+//! See [`tool`] and [`tools!`] for usage.
+
 extern crate proc_macro;
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, Attribute, Expr, FnArg, ItemFn, Lit, Meta, Pat, ReturnType, Type};
+use syn::{
+    parse::{Parse, ParseStream},
+    parse_macro_input,
+    punctuated::Punctuated,
+    Attribute, Expr, FnArg, Ident, ItemFn, Lit, Meta, Pat, ReturnType, Token, Type,
+};
 
-/// Extract the doc comments on the original function, concatenated and trimmed.
 fn extract_doc(attrs: &[Attribute]) -> String {
     let mut out = String::new();
     for attr in attrs {
@@ -23,71 +31,32 @@ fn extract_doc(attrs: &[Attribute]) -> String {
     out
 }
 
-/// Parse the tool attribute arguments for error strategy and retries.
-fn parse_tool_config(args: TokenStream) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
-    let default_error_strategy =
-        quote! { transformers::pipelines::text_generation::ErrorStrategy::Fail };
+fn parse_tool_config(args: TokenStream) -> proc_macro2::TokenStream {
     let default_retries = quote! { 3u32 };
 
     if args.is_empty() {
-        return (default_error_strategy, default_retries);
+        return default_retries;
     }
 
-    let mut error_strategy = default_error_strategy;
-    let mut retries = default_retries;
-
-    // Try to parse as multiple comma-separated arguments
     let args_str = args.to_string();
 
-    // Split by comma and process each part
     for part in args_str.split(',') {
         let part = part.trim();
 
-        if part.starts_with("on_error") {
-            // Extract the value after the =
-            if let Some(value_part) = part.split('=').nth(1) {
-                let value_part = value_part.trim();
-                if let Ok(expr) = syn::parse_str::<syn::Expr>(value_part) {
-                    error_strategy = parse_error_strategy_from_expr(&expr);
-                }
-            }
-        } else if part.starts_with("retries") {
-            // Extract the value after the =
+        if part.starts_with("retries") {
             if let Some(value_part) = part.split('=').nth(1) {
                 let value_part = value_part.trim();
                 if let Ok(lit) = syn::parse_str::<syn::LitInt>(value_part) {
                     let retry_count = lit.base10_parse::<u32>().unwrap_or(3);
-                    retries = quote! { #retry_count };
+                    return quote! { #retry_count };
                 }
             }
         }
     }
 
-    (error_strategy, retries)
+    default_retries
 }
 
-fn parse_error_strategy_from_expr(expr: &syn::Expr) -> proc_macro2::TokenStream {
-    // Convert the expression to a string to check what it contains
-    let expr_str = quote!(#expr).to_string();
-
-    // Clean up the string (remove extra spaces)
-    let expr_str = expr_str.replace(" ", "");
-
-    // Handle different forms of the error strategy
-    if expr_str == "Fail" || expr_str.contains("ErrorStrategy::Fail") {
-        quote! { transformers::pipelines::text_generation::ErrorStrategy::Fail }
-    } else if expr_str == "ReturnToModel" || expr_str.contains("ErrorStrategy::ReturnToModel") {
-        quote! { transformers::pipelines::text_generation::ErrorStrategy::ReturnToModel }
-    } else {
-        // Generate a compile-time error for invalid strategies
-        syn::Error::new_spanned(
-            expr,
-            "Unknown error strategy. Valid options are: ErrorStrategy::Fail, ErrorStrategy::ReturnToModel"
-        ).to_compile_error()
-    }
-}
-
-/// Check if the function returns a Result type
 fn returns_result(output: &ReturnType) -> bool {
     if let ReturnType::Type(_, ty) = output {
         if let Type::Path(type_path) = &**ty {
@@ -99,71 +68,36 @@ fn returns_result(output: &ReturnType) -> bool {
     false
 }
 
-/// Attribute macro `#[tool]` that turns a nice Rust function into a `Tool`.
+/// Converts a function into a tool the model can call.
 ///
-/// # Examples
+/// The function's doc comment becomes the tool description shown to the model.
+/// Parameters are automatically converted to a JSON schema.
 ///
-/// Basic tool returning a `String`:
-/// ```ignore
-/// #[tool]
-/// fn add(a: i32, b: i32) -> String {
-///     (a + b).to_string()
-/// }
-/// ```
+/// # Example
 ///
-/// Tool returning `Result<String>` (uses crate's error type):
-/// ```ignore
-/// use transformers::Result;
+/// ```rust,ignore
+/// use transformers::text_generation::tool;
+/// use transformers::error::Result;
 ///
 /// #[tool]
+/// /// Get the current weather for a city.
 /// fn get_weather(city: String) -> Result<String> {
-///     Ok(format!("Weather in {city} is sunny"))
+///     Ok(format!("Weather in {}: sunny", city))
 /// }
 /// ```
 ///
-/// Async tools are supported, making it easy to perform network or filesystem I/O:
-/// ```ignore
-/// use transformers::Result;
+/// # Options
 ///
-/// #[tool]
-/// async fn fetch_weather(city: String) -> Result<String> {
-///     Ok(format!("Weather in {city} is sunny"))
-/// }
-/// ```
+/// - `retries = N` - Max retry attempts if tool fails (default: 3)
 ///
-/// Tool with custom error type (error is converted via `Display`):
-/// ```ignore
-/// #[derive(Debug, thiserror::Error)]
-/// enum WeatherError {
-///     #[error("City not found: {0}")]
-///     CityNotFound(String),
-///     #[error("API timeout")]
-///     Timeout,
-/// }
-///
-/// #[tool]
-/// fn get_weather(city: String) -> Result<String, WeatherError> {
-///     if city == "Atlantis" {
-///         return Err(WeatherError::CityNotFound(city));
-///     }
-///     Ok(format!("Sunny in {city}"))
-/// }
-/// ```
-///
-/// Tool with error strategy and retry configuration:
-/// ```ignore
-/// #[tool(on_error = ErrorStrategy::ReturnToModel, retries = 5)]
-/// fn flaky_api(query: String) -> Result<String> {
-///     // If this fails, error is sent to model instead of failing the request
-///     Ok("response".into())
-/// }
+/// ```rust,ignore
+/// #[tool(retries = 5)]
+/// fn flaky_tool(x: i32) -> Result<String> { Ok("done".into()) }
 /// ```
 #[proc_macro_attribute]
 pub fn tool(args: TokenStream, item: TokenStream) -> TokenStream {
-    // Parse the error strategy and retries from args
-    let (error_strategy, max_retries) = parse_tool_config(args);
+    let max_retries = parse_tool_config(args);
 
-    // Parse the source function.
     let input_fn = parse_macro_input!(item as ItemFn);
 
     let fn_name_ident = &input_fn.sig.ident;
@@ -174,17 +108,14 @@ pub fn tool(args: TokenStream, item: TokenStream) -> TokenStream {
     let schema_fn_name = format_ident!("__{}_tool_schema", fn_name_ident);
     let is_async = input_fn.sig.asyncness.is_some();
 
-    // Doc comments become description.
     let description = extract_doc(&input_fn.attrs);
 
-    // Check if function returns Result
     let is_result = returns_result(&input_fn.sig.output);
 
-    // Gather parameter information.
     let mut param_fields = Vec::new();
     let mut param_idents = Vec::new();
+    let mut param_types = Vec::new();
 
-    // Traverse function arguments.
     for arg in input_fn.sig.inputs.iter() {
         if let FnArg::Typed(pat_type) = arg {
             if let Pat::Ident(pat_ident) = &*pat_type.pat {
@@ -193,6 +124,7 @@ pub fn tool(args: TokenStream, item: TokenStream) -> TokenStream {
 
                 param_fields.push(quote! { pub #param_name: #ty });
                 param_idents.push(quote! { #param_name });
+                param_types.push(quote! { #ty });
             }
         }
     }
@@ -203,29 +135,20 @@ pub fn tool(args: TokenStream, item: TokenStream) -> TokenStream {
         quote! { #fn_name_ident( #(#param_idents),* ) }
     };
 
-    // Generate different wrapper logic based on return type
     let wrapper_body = if is_result {
         quote! {
             Box::pin(async move {
                 let parsed: #params_struct_name = serde_json::from_value(parameters)
-                    .map_err(|e| transformers::TransformersError::Tool(
-                        transformers::error::ToolError::InvalidParams {
-                            name: #fn_name_str.to_string(),
-                            reason: e.to_string(),
-                        }
+                    .map_err(|e| transformers::error::TransformersError::Tool(
+                        format!("Invalid parameters for '{}': {}", #fn_name_str, e)
                     ))?;
                 let #params_struct_name { #( #param_idents ),* } = parsed;
                 let result = #call_invocation;
 
-                // Convert the result to the expected type
                 match result {
                     Ok(s) => Ok(s),
-                    Err(e) => Err(transformers::TransformersError::Tool(
-                        transformers::error::ToolError::ExecutionFailed {
-                            name: #fn_name_str.to_string(),
-                            attempts: 1,
-                            reason: e.to_string(),
-                        }
+                    Err(e) => Err(transformers::error::TransformersError::Tool(
+                        format!("Tool '{}' failed: {}", #fn_name_str, e)
                     )),
                 }
             })
@@ -234,11 +157,8 @@ pub fn tool(args: TokenStream, item: TokenStream) -> TokenStream {
         quote! {
             Box::pin(async move {
                 let parsed: #params_struct_name = serde_json::from_value(parameters)
-                    .map_err(|e| transformers::TransformersError::Tool(
-                        transformers::error::ToolError::InvalidParams {
-                            name: #fn_name_str.to_string(),
-                            reason: e.to_string(),
-                        }
+                    .map_err(|e| transformers::error::TransformersError::Tool(
+                        format!("Invalid parameters for '{}': {}", #fn_name_str, e)
                     ))?;
                 let #params_struct_name { #( #param_idents ),* } = parsed;
                 let result = #call_invocation;
@@ -247,54 +167,122 @@ pub fn tool(args: TokenStream, item: TokenStream) -> TokenStream {
         }
     };
 
-    // Generate the output tokens: keep original fn, plus wrapper + data.
     let expanded = quote! {
-        // Keep the original function as-is
         #input_fn
 
         #[doc(hidden)]
         #[allow(non_camel_case_types)]
-        #[derive(serde::Deserialize, schemars::JsonSchema)]
+        #[derive(serde::Deserialize)]
         struct #params_struct_name {
             #( #param_fields ),*
         }
 
-        // Automatically generated wrapper that matches the `Tool` function signature.
+        impl transformers::text_generation::schemars::JsonSchema for #params_struct_name {
+            fn schema_name() -> String {
+                stringify!(#params_struct_name).to_string()
+            }
+
+            fn json_schema(gen: &mut transformers::text_generation::schemars::gen::SchemaGenerator) -> transformers::text_generation::schemars::schema::Schema {
+                let mut schema_object = transformers::text_generation::schemars::schema::SchemaObject {
+                    instance_type: Some(transformers::text_generation::schemars::schema::InstanceType::Object.into()),
+                    ..Default::default()
+                };
+                let mut properties = transformers::text_generation::schemars::Map::new();
+                let mut required = std::collections::BTreeSet::new();
+
+                #(
+                    properties.insert(
+                        stringify!(#param_idents).to_string(),
+                        gen.subschema_for::<#param_types>(),
+                    );
+                    required.insert(stringify!(#param_idents).to_string());
+                )*
+
+                schema_object.object = Some(Box::new(transformers::text_generation::schemars::schema::ObjectValidation {
+                    properties,
+                    required,
+                    ..Default::default()
+                }));
+
+                transformers::text_generation::schemars::schema::Schema::Object(schema_object)
+            }
+        }
+
         #[doc(hidden)]
-        fn #wrapper_name(parameters: serde_json::Value) -> transformers::pipelines::text_generation::ToolFuture {
+        fn #wrapper_name(parameters: serde_json::Value) -> transformers::text_generation::ToolFuture {
             #wrapper_body
         }
 
         #[doc(hidden)]
-        fn #schema_fn_name() -> schemars::schema::RootSchema {
-            schemars::schema_for!(#params_struct_name)
+        fn #schema_fn_name() -> transformers::text_generation::schemars::schema::RootSchema {
+            let gen = transformers::text_generation::schemars::gen::SchemaGenerator::default();
+            gen.into_root_schema_for::<#params_struct_name>()
         }
 
-        // Hidden function used by the tools! macro
         #[doc(hidden)]
-        pub fn #tool_builder_name() -> transformers::pipelines::text_generation::Tool {
+        pub fn #tool_builder_name() -> transformers::text_generation::Tool {
             let schema = #schema_fn_name();
 
-            transformers::pipelines::text_generation::Tool::new(
+            transformers::text_generation::Tool::new(
                 #fn_name_str.to_string(),
                 #description.to_string(),
                 schema,
                 #wrapper_name,
-                #error_strategy,
                 #max_retries,
             )
         }
 
-        // Generate a module with the same name as the function
-        // This allows the tools! macro to find the builder
         #[doc(hidden)]
         pub mod #fn_name_ident {
             use super::*;
 
-            pub fn __tool() -> transformers::pipelines::text_generation::Tool {
+            pub fn __tool() -> transformers::text_generation::Tool {
                 #tool_builder_name()
             }
         }
+    };
+
+    TokenStream::from(expanded)
+}
+
+struct ToolsList {
+    tools: Punctuated<Ident, Token![,]>,
+}
+
+impl Parse for ToolsList {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        Ok(ToolsList {
+            tools: Punctuated::parse_terminated(input)?,
+        })
+    }
+}
+
+/// Collects multiple tools into a `Vec<Tool>` for registration.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use transformers::text_generation::{tools, tool, TextGenerationPipeline, Qwen3};
+/// use transformers::error::Result;
+///
+/// #[tool]
+/// /// Get weather.
+/// fn get_weather(city: String) -> Result<String> { Ok(city) }
+///
+/// async fn example(pipeline: TextGenerationPipeline<Qwen3>) {
+///     pipeline.register_tools(tools![get_weather]).await;
+/// }
+/// ```
+#[proc_macro]
+pub fn tools(input: TokenStream) -> TokenStream {
+    let ToolsList { tools } = parse_macro_input!(input as ToolsList);
+
+    let tool_calls = tools.iter().map(|ident| {
+        quote! { #ident::__tool() }
+    });
+
+    let expanded = quote! {
+        vec![#(#tool_calls),*]
     };
 
     TokenStream::from(expanded)

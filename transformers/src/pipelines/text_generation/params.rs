@@ -1,20 +1,26 @@
-//! Generation parameters and sampling for text generation.
-
 use candle_core::Tensor;
 use candle_transformers::generation::{LogitsProcessor as CandleLogitsProcessor, Sampling};
 
 pub use candle_transformers::utils::apply_repeat_penalty;
 
-/// Generation parameters for language models.
+/// Parameters controlling text generation sampling behavior.
 #[derive(Debug, Clone)]
 pub struct GenerationParams {
+    /// Randomness of sampling. 0.0 = deterministic, higher = more random.
     pub temperature: f64,
+    /// Penalty for repeating tokens. 1.0 = no penalty, higher = less repetition.
     pub repeat_penalty: f32,
+    /// Number of recent tokens to consider for repeat penalty.
     pub repeat_last_n: usize,
+    /// Random seed for reproducible generation.
     pub seed: u64,
+    /// Maximum tokens to generate per turn.
     pub max_len: usize,
+    /// Nucleus sampling: only consider tokens with cumulative probability <= p.
     pub top_p: Option<f64>,
+    /// Only consider the top k most likely tokens.
     pub top_k: Option<usize>,
+    /// Filter tokens with probability < min_p * max_probability.
     pub min_p: Option<f64>,
 }
 
@@ -34,7 +40,7 @@ impl Default for GenerationParams {
 }
 
 impl GenerationParams {
-    pub fn sampling_strategy(&self) -> Sampling {
+    pub(crate) fn sampling_strategy(&self) -> Sampling {
         if self.temperature <= 0.0 {
             return Sampling::ArgMax;
         }
@@ -62,7 +68,6 @@ impl GenerationParams {
     }
 }
 
-/// Thin wrapper around Candle's LogitsProcessor to add min-p filtering.
 pub struct LogitsProcessor {
     inner: CandleLogitsProcessor,
     min_p: Option<f32>,

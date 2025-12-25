@@ -1,48 +1,8 @@
-//! Model and tokenizer loading utilities for Hugging Face Hub integration.
-//!
-//! This module provides loaders for downloading and loading various AI model components
-//! from Hugging Face Hub, including:
-//! - Model weight files (GGUF format)
-//! - Tokenizers (JSON format)  
-//! - Generation configuration files
-//!
-//! ## Main Types
-//!
-//! - [`HfLoader`] - Generic Hugging Face file loader with retry logic
-//! - [`TokenizerLoader`] - Loads tokenizers from Hugging Face repositories
-//! - [`GenerationConfigLoader`] - Loads generation configuration files
-//! - [`GgufModelLoader`] - Loads GGUF format model weight files
-//!
-//! ## Usage Example
-//!
-//! ```rust,no_run
-//! use transformers::{Result, loaders::{GgufModelLoader, TokenizerLoader}};
-//!
-//! #[tokio::main]
-//! async fn main() -> Result<()> {
-//!     // Load a tokenizer
-//!     let tokenizer_loader =
-//!         TokenizerLoader::new("microsoft/DialoGPT-small", "tokenizer.json");
-//!     let _tokenizer = tokenizer_loader.load().await?;
-//!
-//!     // Load model weights
-//!     let model_loader = GgufModelLoader::new("microsoft/DialoGPT-small", "model.gguf");
-//!     let (_file, _content) = model_loader.load().await?;
-//!
-//!     Ok(())
-//! }
-//! ```
-//!
-//! All loaders include built-in retry logic to handle temporary network issues
-//! and Hugging Face Hub lock acquisition failures.
-
 use serde::Deserialize;
 use tokio::time::Duration;
 
-use crate::error::{DownloadError, ModelMetadataError, TokenizationError};
-use crate::{Result, TransformersError};
+use crate::error::{Result, TransformersError};
 
-/// Configuration loaded from HuggingFace generation_config.json
 #[derive(Clone)]
 pub struct GenerationConfig {
     pub temperature: Option<f64>,
@@ -74,13 +34,12 @@ impl HfLoader {
         let hf_api = hf_hub::api::tokio::ApiBuilder::new()
             .with_chunk_size(None)
             .build()
-            .map_err(|e| DownloadError::ApiInit {
-                reason: e.to_string(),
+            .map_err(|e| {
+                TransformersError::Download(format!("Failed to initialize HuggingFace API: {e}"))
             })?;
         let hf_repo = self.repo.clone();
         let hf_api = hf_api.model(hf_repo);
 
-        // Retry logic for lock acquisition failures
         let max_retries = 3;
         let mut attempts = 0u32;
 
@@ -91,28 +50,22 @@ impl HfLoader {
                     let error_msg = e.to_string();
                     attempts = attempt + 1;
                     if error_msg.contains("Lock acquisition failed") && attempt < max_retries - 1 {
-                        // Wait before retrying, with exponential backoff
                         let wait_time = Duration::from_millis(100 * (1 << attempt));
                         tokio::time::sleep(wait_time).await;
                         continue;
                     }
-                    return Err(DownloadError::Failed {
-                        repo: self.repo.clone(),
-                        file: self.filename.clone(),
-                        reason: error_msg,
-                    }
-                    .into());
+                    return Err(TransformersError::Download(format!(
+                        "Failed to download '{}' from '{}': {}",
+                        self.filename, self.repo, error_msg
+                    )));
                 }
             }
         }
 
-        // If we exhausted all retries, return timeout error
-        Err(DownloadError::Timeout {
-            repo: self.repo.clone(),
-            file: self.filename.clone(),
-            attempts,
-        }
-        .into())
+        Err(TransformersError::Download(format!(
+            "Download timed out for '{}' from '{}' after {} attempt(s)",
+            self.filename, self.repo, attempts
+        )))
     }
 }
 
@@ -135,10 +88,10 @@ impl TokenizerLoader {
         let path_str = tokenizer_file_path.display().to_string();
 
         let tokenizer = tokenizers::Tokenizer::from_file(&tokenizer_file_path).map_err(|e| {
-            TokenizationError::LoadFailed {
-                path: path_str,
-                reason: e.to_string(),
-            }
+            TransformersError::Tokenization(format!(
+                "Failed to load tokenizer from '{}': {}",
+                path_str, e
+            ))
         })?;
 
         Ok(tokenizer)
@@ -180,10 +133,10 @@ impl GenerationConfigLoader {
 
         let eos_token_ids = match raw.eos_token_ids {
             Some(serde_json::Value::Number(n)) => {
-                vec![n.as_u64().ok_or_else(|| ModelMetadataError::InvalidValue {
-                    key: "eos_token_id".into(),
-                    expected: "unsigned integer".into(),
-                    actual: n.to_string(),
+                vec![n.as_u64().ok_or_else(|| {
+                    TransformersError::Unexpected(format!(
+                        "Invalid eos_token_id: expected unsigned integer, got {n}"
+                    ))
                 })?]
             }
             Some(serde_json::Value::Array(arr)) => arr
@@ -191,11 +144,9 @@ impl GenerationConfigLoader {
                 .enumerate()
                 .map(|(i, v)| {
                     v.as_u64().ok_or_else(|| {
-                        TransformersError::from(ModelMetadataError::InvalidValue {
-                            key: format!("eos_token_ids[{i}]"),
-                            expected: "unsigned integer".into(),
-                            actual: v.to_string(),
-                        })
+                        TransformersError::Unexpected(format!(
+                            "Invalid eos_token_ids[{i}]: expected unsigned integer, got {v}"
+                        ))
                     })
                 })
                 .collect::<Result<Vec<_>>>()?,

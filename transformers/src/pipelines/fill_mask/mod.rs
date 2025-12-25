@@ -1,44 +1,74 @@
-//! Fill-mask pipeline for predicting masked tokens in text.
+//! Masked language modeling pipeline.
 //!
-//! This module provides functionality for filling in masked tokens (typically `[MASK]`)
-//! in text sequences using pre-trained language models. It's useful for text completion,
-//! error correction, and exploring model behavior.
+//! Fill-mask predicts the most likely word(s) for a `[MASK]` token in text.
+//! Returns the predicted word and a confidence score.
 //!
-//! ## Main Types
-//!
-//! - [`FillMaskPipeline`] - High-level interface for mask filling
-//! - [`FillMaskPipelineBuilder`] - Builder pattern for pipeline configuration
-//! - [`FillMaskModel`] - Trait for fill-mask model implementations
-//! - [`ModernBertSize`] - Available model size options
-//!
-//! ## Usage Example
+//! # Quick Start
 //!
 //! ```rust,no_run
-//! use transformers::{pipelines::fill_mask::*, pipelines::utils::BasePipelineBuilder, Result};
+//! use transformers::fill_mask::{FillMaskPipelineBuilder, ModernBertSize};
 //!
-//! fn main() -> Result<()> {
-//!     // Create a fill-mask pipeline
-//!     let pipeline = FillMaskPipelineBuilder::modernbert(ModernBertSize::Base)
-//!         .build()?;
+//! # fn main() -> transformers::error::Result<()> {
+//! let pipeline = FillMaskPipelineBuilder::modernbert(ModernBertSize::Base).build()?;
+//! let prediction = pipeline.predict("The [MASK] of France is Paris.")?;
 //!
-//!     // Fill masked tokens
-//!     let top = pipeline.predict("The capital of France is [MASK].")?;
-//!     println!("Token: {} (score: {:.3})", top.word, top.score);
-//!
-//!     // Or get top-k candidates
-//!     let top3 = pipeline.predict_top_k("The capital of France is [MASK].", 3)?;
-//!     println!("Got {} candidates", top3.len());
-//!     Ok(())
-//! }
+//! // prediction: capital (confidence: 0.99)
+//! println!("prediction: {} (confidence: {:.2})", prediction.word, prediction.score);
+//! # Ok(())
+//! # }
 //! ```
+//!
+//! # Top-K Predictions
+//!
+//! Get multiple candidate words ranked by confidence:
+//!
+//! ```rust,no_run
+//! # use transformers::fill_mask::{FillMaskPipelineBuilder, ModernBertSize};
+//! # fn main() -> transformers::error::Result<()> {
+//! # let pipeline = FillMaskPipelineBuilder::modernbert(ModernBertSize::Base).build()?;
+//! let top_3 = pipeline.predict_top_k("I love my [MASK] car.", 3)?;
+//!
+//! for p in top_3 {
+//!     println!("{}: {:.2}", p.word, p.score);
+//! }
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Batch Inference
+//!
+//! Process multiple texts efficiently:
+//!
+//! ```rust,no_run
+//! # use transformers::fill_mask::{FillMaskPipelineBuilder, ModernBertSize};
+//! # fn main() -> transformers::error::Result<()> {
+//! # let pipeline = FillMaskPipelineBuilder::modernbert(ModernBertSize::Base).build()?;
+//! let texts = &["The [MASK] is shining.", "She plays the [MASK] beautifully."];
+//!
+//! let results = pipeline.predict_batch(texts)?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Supported Models
+//!
+//! For now only ModernBERT is supported, but I have plans to add more models in the future!
+//!
+//! | Model | Sizes | Builder Method |
+//! |-------|-------|----------------|
+//! | ModernBERT | `Base`, `Large` | [`FillMaskPipelineBuilder::modernbert`] |
 
-pub mod builder;
-pub mod model;
-pub mod pipeline;
+// ============ Internal API ============
 
-pub use builder::FillMaskPipelineBuilder;
-pub use model::FillMaskModel;
-pub use pipeline::FillMaskPipeline;
+pub(crate) mod builder;
+pub(crate) mod model;
+pub(crate) mod pipeline;
+
+// ============ Public API ============
 
 pub use crate::models::ModernBertSize;
-pub use crate::Result;
+pub use builder::FillMaskPipelineBuilder;
+pub use pipeline::{FillMaskPipeline, FillMaskPrediction};
+
+/// Only for generic annotations. Use [`FillMaskPipelineBuilder::modernbert`].
+pub type FillMaskModernBert = crate::models::modernbert::FillMaskModernBertModel;

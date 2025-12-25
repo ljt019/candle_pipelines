@@ -1,40 +1,66 @@
-//! Sentiment analysis pipeline for classifying text emotional tone.
+//! Sentiment analysis pipeline.
 //!
-//! This module provides functionality for analyzing the sentiment (positive, negative, neutral)
-//! of text inputs using pre-trained transformer models. It's useful for content moderation,
-//! customer feedback analysis, and social media monitoring.
+//! Classify text as `positive`, `negative`, or `neutral`.
+//! Returns both the predicted label and a confidence score.
 //!
-//! ## Main Types
-//!
-//! - [`SentimentAnalysisPipeline`] - High-level interface for sentiment classification  
-//! - [`SentimentAnalysisPipelineBuilder`] - Builder pattern for pipeline configuration
-//! - [`SentimentAnalysisModel`] - Trait for sentiment analysis model implementations
-//! - [`ModernBertSize`] - Available model size options
-//!
-//! ## Usage Example
+//! # Quick Start
 //!
 //! ```rust,no_run
-//! use transformers::{pipelines::sentiment::*, pipelines::utils::BasePipelineBuilder, Result};
+//! use transformers::sentiment::{SentimentAnalysisPipelineBuilder, ModernBertSize};
 //!
-//! fn main() -> Result<()> {
-//!     // Create a sentiment analysis pipeline
-//!     let pipeline = SentimentAnalysisPipelineBuilder::modernbert(ModernBertSize::Base)
-//!         .build()?;
+//! # fn main() -> transformers::error::Result<()> {
+//! let pipeline = SentimentAnalysisPipelineBuilder::modernbert(ModernBertSize::Base).build()?;
+//! let result = pipeline.predict("I absolutely love this product!")?;
 //!
-//!     // Analyze sentiment
-//!     let result = pipeline.predict("I love this product!")?;
-//!     println!("Sentiment: {} (confidence: {:.2})", result.label, result.score);
-//!     Ok(())
-//! }
+//! // sentiment: positive (confidence: 0.98)
+//! println!("sentiment: {} (confidence: {:.2})", result.label, result.score);
+//! # Ok(())
+//! # }
 //! ```
+//!
+//! # Batch Inference
+//!
+//! Analyze multiple texts efficiently:
+//!
+//! ```rust,no_run
+//! # use transformers::sentiment::{SentimentAnalysisPipelineBuilder, ModernBertSize};
+//! # fn main() -> transformers::error::Result<()> {
+//! # let pipeline = SentimentAnalysisPipelineBuilder::modernbert(ModernBertSize::Base).build()?;
+//! let reviews = &[
+//!     "Best purchase I've ever made!",
+//!     "Terrible quality, very disappointed.",
+//!     "It's okay, nothing special.",
+//! ];
+//!
+//! let results = pipeline.predict_batch(reviews)?;
+//!
+//! for (text, result) in reviews.iter().zip(results) {
+//!     let r = result?;
+//!     println!("{}: {} ({:.2})", text, r.label, r.score);
+//! }
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Supported Models
+//!
+//! For now only ModernBERT is supported, but I have plans to add more models in the future!
+//!
+//! | Model | Sizes | Builder Method |
+//! |-------|-------|----------------|
+//! | ModernBERT | `Base`, `Large` | [`SentimentAnalysisPipelineBuilder::modernbert`] |
 
-pub mod builder;
-pub mod model;
-pub mod pipeline;
+// ============ Internal API ============
 
-pub use builder::SentimentAnalysisPipelineBuilder;
-pub use model::SentimentAnalysisModel;
-pub use pipeline::SentimentAnalysisPipeline;
+pub(crate) mod builder;
+pub(crate) mod model;
+pub(crate) mod pipeline;
+
+// ============ Public API ============
 
 pub use crate::models::ModernBertSize;
-pub use crate::Result;
+pub use builder::SentimentAnalysisPipelineBuilder;
+pub use pipeline::{SentimentAnalysisPipeline, SentimentResult};
+
+/// Only for generic annotations. Use [`SentimentAnalysisPipelineBuilder::modernbert`].
+pub type SentimentModernBert = crate::models::modernbert::SentimentModernBertModel;

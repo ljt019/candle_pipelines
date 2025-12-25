@@ -7,20 +7,20 @@ use super::model::{LanguageModelContext, ToggleableReasoning};
 use super::params::GenerationParams;
 use super::stats::GenerationStats;
 use super::tools::{ErrorStrategy, Tool, ToolCalling};
-use crate::error::{TokenizationError, ToolError};
-use crate::Result;
+use crate::error::Result;
+use crate::error::TransformersError;
 use async_stream::try_stream;
 use futures::StreamExt;
 use regex::Regex;
 use serde::Deserialize;
 
-/// Input for a text-generation request.
+/// Input type for completion methods. Accepts prompts or message arrays.
 #[derive(Debug, Clone)]
 pub enum Input<'a> {
-    /// A raw prompt string.
+    /// A single prompt string.
     Prompt(&'a str),
-    /// A sequence of chat messages.
-    Messages(&'a [crate::Message]),
+    /// A conversation as a slice of messages.
+    Messages(&'a [super::message::Message]),
 }
 
 impl<'a> From<&'a str> for Input<'a> {
@@ -29,14 +29,14 @@ impl<'a> From<&'a str> for Input<'a> {
     }
 }
 
-impl<'a> From<&'a [crate::Message]> for Input<'a> {
-    fn from(m: &'a [crate::Message]) -> Self {
+impl<'a> From<&'a [super::message::Message]> for Input<'a> {
+    fn from(m: &'a [super::message::Message]) -> Self {
         Self::Messages(m)
     }
 }
 
-impl<'a> From<&'a Vec<crate::Message>> for Input<'a> {
-    fn from(v: &'a Vec<crate::Message>) -> Self {
+impl<'a> From<&'a Vec<super::message::Message>> for Input<'a> {
+    fn from(v: &'a Vec<super::message::Message>) -> Self {
         Self::Messages(v.as_slice())
     }
 }
@@ -47,65 +47,88 @@ impl<'a> From<&'a String> for Input<'a> {
     }
 }
 
-/// Text generation pipeline that outputs strings
+/// Pipeline for generating text from prompts or conversations.
+///
+/// Created via [`TextGenerationPipelineBuilder`](super::TextGenerationPipelineBuilder).
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use transformers::text_generation::{TextGenerationPipelineBuilder, Qwen3Size, Message};
+///
+/// # async fn example() -> transformers::error::Result<()> {
+/// let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
+///     .build()
+///     .await?;
+///
+/// // Simple prompt
+/// let response = pipeline.completion("What is Rust?").await?;
+///
+/// // Multi-turn conversation
+/// let messages = vec![
+///     Message::system("You are a helpful assistant."),
+///     Message::user("What is 2+2?"),
+/// ];
+/// let response = pipeline.completion(&messages).await?;
+/// # Ok(())
+/// # }
 pub struct TextGenerationPipeline<M: TextGenerationModel> {
     base: BasePipeline<M>,
+    tool_error_strategy: ErrorStrategy,
 }
 
 impl<M: TextGenerationModel + Send> TextGenerationPipeline<M> {
-    pub async fn new(
+    pub(crate) async fn new(
         model: M,
         gen_params: GenerationParams,
         device: candle_core::Device,
+        tool_error_strategy: ErrorStrategy,
     ) -> Result<Self> {
         Ok(Self {
             base: BasePipeline::new(model, gen_params, device).await?,
+            tool_error_strategy,
         })
     }
 
-    /// Get the current position in the context (number of cached tokens)
-    pub async fn context_position(&self) -> usize {
-        self.base.context_position().await
+    /// Returns the current tool error handling strategy.
+    pub fn tool_error_strategy(&self) -> &ErrorStrategy {
+        &self.tool_error_strategy
     }
 
+    /// Returns stats from the last generation (tokens, timing).
     pub fn last_generation_stats(&self) -> Option<GenerationStats> {
         self.base.last_generation_stats()
     }
 
+    /// Update generation parameters (temperature, top_p, etc.).
     pub async fn set_generation_params(&self, params: GenerationParams) {
         self.base.set_generation_params(params).await;
     }
 
-    /// Returns the maximum context length (in tokens) supported by the model.
-    ///
-    /// Use this to check if your prompt will fit before sending.
+    /// Returns the model's maximum context length in tokens.
     pub async fn max_context_length(&self) -> usize {
         self.base.model.lock().await.get_max_seq_len()
     }
 
-    /// Count tokens in a text without running generation.
-    ///
-    /// Useful for checking if input will fit within context limits.
+    /// Count tokens in text without generating.
     pub fn count_tokens(&self, text: &str) -> Result<usize> {
-        let tokens = self
-            .base
-            .model_tokenizer
-            .encode(text, false)
-            .map_err(|e| TokenizationError::encode_failed(text, e.to_string()))?;
+        let tokens = self.base.model_tokenizer.encode(text, false).map_err(|e| {
+            TransformersError::Tokenization(format!(
+                "Tokenization failed on '{}...': {}",
+                text.chars().take(50).collect::<String>(),
+                e
+            ))
+        })?;
         Ok(tokens.get_ids().len())
     }
 
-    /// Clear the KV cache and reset context position.
-    ///
-    /// Call this when starting a completely new conversation to ensure
-    /// no state from previous generations affects the new one.
+    /// Clear the KV cache.
     pub async fn clear_cache(&self) {
         self.base.context.lock().await.reset();
         self.base.last_processed_tokens.lock().await.clear();
     }
 
-    /// Generate a completion from either a prompt or a chat history.
-    /// Returns a String.
+    /// Generate a completion from a prompt or messages.
     pub async fn completion<'a>(&self, input: impl Into<Input<'a>>) -> Result<String> {
         match input.into() {
             Input::Prompt(p) => self.prompt_completion_internal(p).await,
@@ -113,7 +136,7 @@ impl<M: TextGenerationModel + Send> TextGenerationPipeline<M> {
         }
     }
 
-    /// Generate a completion and return generation statistics alongside the result.
+    /// Generate a completion and return generation statistics.
     pub async fn completion_with_stats<'a>(
         &self,
         input: impl Into<Input<'a>>,
@@ -124,29 +147,11 @@ impl<M: TextGenerationModel + Send> TextGenerationPipeline<M> {
         }
     }
 
-    /// Generate completions for a batch of prompts.
-    pub async fn completion_batch<'a>(&self, prompts: &[&'a str]) -> Result<Vec<Result<String>>> {
+    /// Generate completions for multiple prompts sequentially.
+    pub async fn completion_batch(&self, prompts: &[&str]) -> Result<Vec<Result<String>>> {
         let mut outputs = Vec::with_capacity(prompts.len());
         for prompt in prompts {
             outputs.push(self.prompt_completion_internal(prompt).await);
-        }
-        Ok(outputs)
-    }
-
-    /// Generate chat completions for a batch of message histories.
-    ///
-    /// Each conversation is processed independently with a fresh context.
-    /// This ensures no KV cache or state is shared between batch items.
-    pub async fn chat_batch(
-        &self,
-        conversations: &[&[crate::Message]],
-    ) -> Result<Vec<Result<String>>> {
-        let mut outputs = Vec::with_capacity(conversations.len());
-        for messages in conversations {
-            // Explicitly reset context to ensure independence between batch items
-            self.base.context.lock().await.reset();
-            self.base.last_processed_tokens.lock().await.clear();
-            outputs.push(self.message_completion_internal(messages).await);
         }
         Ok(outputs)
     }
@@ -160,7 +165,6 @@ impl<M: TextGenerationModel + Send> TextGenerationPipeline<M> {
         &self,
         prompt: &str,
     ) -> Result<(String, GenerationStats)> {
-        // Reset context for fresh generation
         self.base.context.lock().await.reset();
 
         let templated_prompt = self
@@ -168,13 +172,19 @@ impl<M: TextGenerationModel + Send> TextGenerationPipeline<M> {
             .model
             .lock()
             .await
-            .apply_chat_template(&[crate::Message::user(prompt)])?;
+            .apply_chat_template(&[super::message::Message::user(prompt)])?;
 
         let prompt_tokens = self
             .base
             .model_tokenizer
             .encode(templated_prompt.as_str(), true)
-            .map_err(|e| TokenizationError::encode_failed(&templated_prompt, e.to_string()))?
+            .map_err(|e| {
+                TransformersError::Tokenization(format!(
+                    "Tokenization failed on '{}...': {}",
+                    templated_prompt.chars().take(50).collect::<String>(),
+                    e
+                ))
+            })?
             .get_ids()
             .to_vec();
 
@@ -183,7 +193,10 @@ impl<M: TextGenerationModel + Send> TextGenerationPipeline<M> {
             .await
     }
 
-    async fn message_completion_internal(&self, messages: &[crate::Message]) -> Result<String> {
+    async fn message_completion_internal(
+        &self,
+        messages: &[super::message::Message],
+    ) -> Result<String> {
         let (response, _) = self
             .message_completion_internal_with_stats(messages)
             .await?;
@@ -193,7 +206,7 @@ impl<M: TextGenerationModel + Send> TextGenerationPipeline<M> {
 
     async fn message_completion_internal_with_stats(
         &self,
-        messages: &[crate::Message],
+        messages: &[super::message::Message],
     ) -> Result<(String, GenerationStats)> {
         let templated_prompt = self.base.model.lock().await.apply_chat_template(messages)?;
 
@@ -201,20 +214,23 @@ impl<M: TextGenerationModel + Send> TextGenerationPipeline<M> {
             .base
             .model_tokenizer
             .encode(templated_prompt.as_str(), true)
-            .map_err(|e| TokenizationError::encode_failed(&templated_prompt, e.to_string()))?
+            .map_err(|e| {
+                TransformersError::Tokenization(format!(
+                    "Tokenization failed on '{}...': {}",
+                    templated_prompt.chars().take(50).collect::<String>(),
+                    e
+                ))
+            })?
             .get_ids()
             .to_vec();
 
-        // Check if we need to reset due to context overflow
         let max_seq_len = self.base.model.lock().await.get_max_seq_len();
         let pending_tokens = new_tokens.len();
 
         if self.base.context.lock().await.position() + pending_tokens > max_seq_len {
-            // Context would overflow, reset and start fresh
             self.base.context.lock().await.reset();
             self.base.last_processed_tokens.lock().await.clear();
         } else if self.base.can_reuse_cache(&new_tokens).await {
-            // Cache prefix matches, only feed the suffix
             let prefix_len = self.base.last_processed_tokens.lock().await.len();
             let new_portion = &new_tokens[prefix_len..];
             let (response, stats) = self
@@ -222,27 +238,23 @@ impl<M: TextGenerationModel + Send> TextGenerationPipeline<M> {
                 .completion_from_tokens_with_prompt_stats(new_portion, new_tokens.len())
                 .await?;
 
-            // Track only prompt tokens for next turn
             *self.base.last_processed_tokens.lock().await = new_tokens.clone();
             return Ok((response, stats));
         } else {
-            // Cache is invalid (conversation changed), reset
             self.base.context.lock().await.reset();
         }
 
-        // Process all tokens from scratch
         let (response, stats) = self
             .base
             .completion_from_tokens_with_prompt_stats(&new_tokens, new_tokens.len())
             .await?;
 
-        // Update tracking (prompt tokens only)
         *self.base.last_processed_tokens.lock().await = new_tokens;
 
         Ok((response, stats))
     }
 
-    /// Streaming version of completion
+    /// Stream tokens as they're generated.
     pub async fn completion_stream<'a>(
         &'a self,
         input: impl Into<Input<'a>>,
@@ -259,12 +271,18 @@ impl<M: TextGenerationModel + Send> TextGenerationPipeline<M> {
                     .model
                     .lock()
                     .await
-                    .apply_chat_template(&[crate::Message::user(p)])?;
+                    .apply_chat_template(&[super::message::Message::user(p)])?;
                 let tokens = self
                     .base
                     .model_tokenizer
                     .encode(templated.as_str(), true)
-                    .map_err(|e| TokenizationError::encode_failed(&templated, e.to_string()))?
+                    .map_err(|e| {
+                        TransformersError::Tokenization(format!(
+                            "Tokenization failed on '{}...': {}",
+                            templated.chars().take(50).collect::<String>(),
+                            e
+                        ))
+                    })?
                     .get_ids()
                     .to_vec();
                 let prompt_tokens = tokens.len();
@@ -276,7 +294,13 @@ impl<M: TextGenerationModel + Send> TextGenerationPipeline<M> {
                     .base
                     .model_tokenizer
                     .encode(templated.as_str(), true)
-                    .map_err(|e| TokenizationError::encode_failed(&templated, e.to_string()))?
+                    .map_err(|e| {
+                        TransformersError::Tokenization(format!(
+                            "Tokenization failed on '{}...': {}",
+                            templated.chars().take(50).collect::<String>(),
+                            e
+                        ))
+                    })?
                     .get_ids()
                     .to_vec();
 
@@ -318,43 +342,43 @@ impl<M: TextGenerationModel + Send> TextGenerationPipeline<M> {
     }
 }
 
-// Implementations for models with ToggleableReasoning
 impl<M: TextGenerationModel + ToggleableReasoning> TextGenerationPipeline<M> {
-    pub async fn set_reasoning(&self, enable: bool) -> Result<()> {
+    /// Enable or disable reasoning/thinking mode for models that support it.
+    pub async fn set_reasoning(&self, enable: bool) {
         self.base.model.lock().await.set_reasoning(enable)
     }
 }
 
-// Implementations for models with ToolCalling
 impl<M: TextGenerationModel + ToolCalling + Send> TextGenerationPipeline<M> {
-    pub async fn unregister_tool(&self, name: &str) -> Result<()> {
+    /// Remove a tool by name.
+    pub async fn unregister_tool(&self, name: &str) {
         self.base.model.lock().await.unregister_tool(name)
     }
 
-    pub async fn clear_tools(&self) -> Result<()> {
+    /// Remove all registered tools.
+    pub async fn clear_tools(&self) {
         self.base.model.lock().await.clear_tools()
     }
 
-    pub async fn register_tools(&self, tools: Vec<Tool>) -> Result<()> {
+    /// Register tools for the model to call. Use `tools![...]` macro.
+    pub async fn register_tools(&self, tools: Vec<Tool>) {
         for tool in tools {
-            self.base.model.lock().await.register_tool(tool)?;
+            self.base.model.lock().await.register_tool(tool);
         }
-        Ok(())
     }
 
-    pub async fn unregister_tools(&self, tools: Vec<Tool>) -> Result<()> {
+    /// Remove multiple tools.
+    pub async fn unregister_tools(&self, tools: Vec<Tool>) {
         for tool in tools {
-            self.base.model.lock().await.unregister_tool(&tool.name)?;
+            self.base.model.lock().await.unregister_tool(&tool.name);
         }
-        Ok(())
     }
 
+    /// List all registered tools.
     pub async fn registered_tools(&self) -> Vec<Tool> {
         self.base.model.lock().await.registered_tools()
     }
 
-    /// Execute a list of tool calls with retry logic and error handling
-    /// Returns a vector of formatted tool responses
     async fn execute_tool_calls(
         &self,
         tool_calls: Vec<ToolCallInvocation>,
@@ -363,25 +387,21 @@ impl<M: TextGenerationModel + ToolCalling + Send> TextGenerationPipeline<M> {
         let mut tool_responses = Vec::new();
 
         for call in tool_calls {
-            // Find the tool
             let available_tools: Vec<String> = tools.iter().map(|t| t.name.clone()).collect();
-            let tool =
-                tools
-                    .iter()
-                    .find(|t| t.name == call.name)
-                    .ok_or_else(|| ToolError::NotFound {
-                        name: call.name.clone(),
-                        available: available_tools,
-                    })?;
+            let tool = tools.iter().find(|t| t.name == call.name).ok_or_else(|| {
+                TransformersError::Tool(format!(
+                    "Tool '{}' not found. Registered tools: {}",
+                    call.name,
+                    available_tools.join(", ")
+                ))
+            })?;
 
-            // Execute the tool with retries
             let args = call.arguments.clone();
             let mut attempts = 0u32;
 
             loop {
                 match tool.call(args.clone()).await {
                     Ok(result) => {
-                        // Ensure tool result content ends with exactly one newline
                         let trimmed_result = result.trim_end_matches('\n');
                         tool_responses.push(format!(
                             "<tool_result name=\"{}\">\n{}\n</tool_result>",
@@ -392,10 +412,9 @@ impl<M: TextGenerationModel + ToolCalling + Send> TextGenerationPipeline<M> {
                     Err(e) => {
                         attempts += 1;
                         if attempts >= tool.max_retries() {
-                            match tool.error_strategy() {
+                            match &self.tool_error_strategy {
                                 ErrorStrategy::Fail => return Err(e),
                                 ErrorStrategy::ReturnToModel => {
-                                    // Also ensure error messages end with exactly one newline
                                     let error_msg = format!("Error: {e}");
                                     let trimmed_error = error_msg.trim_end_matches('\n');
                                     tool_responses.push(format!(
@@ -416,21 +435,24 @@ impl<M: TextGenerationModel + ToolCalling + Send> TextGenerationPipeline<M> {
         Ok(tool_responses)
     }
 
+    /// Generate with tool calling. Model can invoke registered tools.
     pub async fn completion_with_tools<'a>(&self, input: impl Into<Input<'a>>) -> Result<String> {
         let tools = self.base.model.lock().await.registered_tools();
         if tools.is_empty() {
-            return Err(ToolError::NoToolsRegistered.into());
+            return Err(TransformersError::Tool(
+                "No tools registered. Call register_tools() before completion_with_tools()."
+                    .to_string(),
+            ));
         }
 
         let mut messages = match input.into() {
-            Input::Prompt(p) => vec![crate::Message::user(p)],
+            Input::Prompt(p) => vec![super::message::Message::user(p)],
             Input::Messages(m) => m.to_vec(),
         };
 
         let mut full_response = String::new();
 
         loop {
-            // Generate response
             let templated = self
                 .base
                 .model
@@ -441,11 +463,16 @@ impl<M: TextGenerationModel + ToolCalling + Send> TextGenerationPipeline<M> {
                 .base
                 .model_tokenizer
                 .encode(templated.as_str(), true)
-                .map_err(|e| TokenizationError::encode_failed(&templated, e.to_string()))?
+                .map_err(|e| {
+                    TransformersError::Tokenization(format!(
+                        "Tokenization failed on '{}...': {}",
+                        templated.chars().take(50).collect::<String>(),
+                        e
+                    ))
+                })?
                 .get_ids()
                 .to_vec();
 
-            // Check if we need to reset due to context overflow
             let max_seq_len = self.base.model.lock().await.get_max_seq_len();
             let pending_tokens = new_tokens.len();
 
@@ -467,28 +494,23 @@ impl<M: TextGenerationModel + ToolCalling + Send> TextGenerationPipeline<M> {
                     res
                 };
 
-            // Check for tool calls
             match Self::extract_tool_calls(&response) {
                 Ok(tool_calls) if !tool_calls.is_empty() => {
-                    // Append the model's response (including tool calls)
                     full_response.push_str(&response);
                     full_response.push('\n');
-                    messages.push(crate::Message::assistant(&response));
+                    messages.push(super::message::Message::assistant(&response));
 
-                    // Execute tools and get responses
                     let tool_responses = self.execute_tool_calls(tool_calls, &tools).await?;
                     let tool_response_text = tool_responses.join("\n");
 
-                    // Append tool results to the output
                     full_response.push('\n');
                     full_response.push_str(&tool_response_text);
                     full_response.push('\n');
 
-                    messages.push(crate::Message::user(&tool_response_text));
+                    messages.push(super::message::Message::user(&tool_response_text));
                     continue;
                 }
                 _ => {
-                    // No tool calls, append final response and return
                     if !full_response.is_empty() {
                         full_response.push('\n');
                         full_response.push_str(&response);
@@ -501,6 +523,7 @@ impl<M: TextGenerationModel + ToolCalling + Send> TextGenerationPipeline<M> {
         }
     }
 
+    /// Stream generation with tool calling.
     pub async fn completion_stream_with_tools<'a>(
         &'a self,
         input: impl Into<Input<'a>>,
@@ -511,11 +534,14 @@ impl<M: TextGenerationModel + ToolCalling + Send> TextGenerationPipeline<M> {
     > {
         let tools = self.base.model.lock().await.registered_tools();
         if tools.is_empty() {
-            return Err(ToolError::NoToolsRegistered.into());
+            return Err(TransformersError::Tool(
+                "No tools registered. Call register_tools() before completion_with_tools()."
+                    .to_string(),
+            ));
         }
 
         let initial_messages = match input.into() {
-            Input::Prompt(p) => vec![crate::Message::user(p)],
+            Input::Prompt(p) => vec![super::message::Message::user(p)],
             Input::Messages(m) => m.to_vec(),
         };
 
@@ -528,13 +554,11 @@ impl<M: TextGenerationModel + ToolCalling + Send> TextGenerationPipeline<M> {
             let mut needs_spacing = false;
 
             loop {
-                // Add spacing before final response if needed
                 if needs_spacing {
                     yield "\n".to_string();
                     needs_spacing = false;
                 }
 
-                // Stream the response
                 {
                     let stream_stats = std::sync::Arc::clone(&stream_stats_inner);
                     let stream_inner = self.completion_stream(&messages[..]).await?;
@@ -551,27 +575,21 @@ impl<M: TextGenerationModel + ToolCalling + Send> TextGenerationPipeline<M> {
                     }
                 }
 
-                // Check for tool calls in the complete response
                 match Self::extract_tool_calls(&response_buffer) {
                     Ok(tool_calls) if !tool_calls.is_empty() => {
-                        // Add assistant message with tool calls
-                        messages.push(crate::Message::assistant(&response_buffer));
+                        messages.push(super::message::Message::assistant(&response_buffer));
                         response_buffer.clear();
 
-                        // Execute tools
                         let tool_responses = self.execute_tool_calls(tool_calls, &tools).await?;
                         let tool_response_text = tool_responses.join("\n");
 
-                                                // Yield the tool results to the stream
                         yield format!("\n\n{}\n", tool_response_text);
 
-                        messages.push(crate::Message::user(&tool_response_text));
+                        messages.push(super::message::Message::user(&tool_response_text));
                         needs_spacing = true;
 
-                        // Continue to get the final response
                     }
                     _ => {
-                        // No tool calls, we're done
                         break;
                     }
                 }
@@ -586,7 +604,8 @@ impl<M: TextGenerationModel + ToolCalling + Send> TextGenerationPipeline<M> {
     }
 
     fn extract_tool_calls(text: &str) -> Result<Vec<ToolCallInvocation>> {
-        let tool_regex = Regex::new(r"(?s)<tool_call>(.*?)</tool_call>")?;
+        let tool_regex =
+            Regex::new(r"(?s)<tool_call>(.*?)</tool_call>").expect("hardcoded regex is valid");
         let mut tool_calls = Vec::new();
 
         for cap in tool_regex.captures_iter(text) {
@@ -620,4 +639,34 @@ struct RawToolCall {
 struct ToolCallInvocation {
     name: String,
     arguments: serde_json::Value,
+}
+
+#[cfg(test)]
+#[cfg(feature = "cuda")]
+mod cache_tests {
+    use crate::error::Result;
+    use crate::text_generation::{Qwen3Size, TextGenerationPipelineBuilder};
+
+    #[tokio::test]
+    async fn multiple_pipelines_work_independently() -> Result<()> {
+        let mut pipelines = Vec::new();
+        for _ in 0..3 {
+            let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
+                .cuda(0)
+                .temperature(0.7)
+                .max_len(10)
+                .build()
+                .await?;
+            pipelines.push(pipeline);
+        }
+
+        let _ = pipelines[0].completion("Hello").await?;
+        assert!(pipelines[0].base.context_position().await > 0);
+
+        for p in pipelines.iter().skip(1) {
+            assert_eq!(p.base.context_position().await, 0);
+        }
+
+        Ok(())
+    }
 }

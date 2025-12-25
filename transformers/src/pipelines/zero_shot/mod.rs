@@ -1,46 +1,82 @@
-//! Zero-shot classification pipeline for classifying text without training data.
+//! Zero-shot text classification pipeline.
 //!
-//! This module provides functionality for classifying text into arbitrary categories
-//! without requiring training examples for those categories. It uses natural language
-//! inference to determine if a text belongs to a given category, making it very flexible
-//! for dynamic classification tasks.
+//! Classify text into categories you define at runtime, no training required.
+//! Returns labels ranked by confidence score.
 //!
-//! ## Main Types
-//!
-//! - [`ZeroShotClassificationPipeline`] - High-level interface for zero-shot classification
-//! - [`ZeroShotClassificationPipelineBuilder`] - Builder pattern for pipeline configuration
-//! - [`ZeroShotClassificationModel`] - Trait for zero-shot classification model implementations
-//! - [`ModernBertSize`] - Available model size options
-//!
-//! ## Usage Example
+//! # Quick Start
 //!
 //! ```rust,no_run
-//! use transformers::{pipelines::utils::BasePipelineBuilder, pipelines::zero_shot::*, Result};
+//! use transformers::zero_shot::{ZeroShotClassificationPipelineBuilder, ModernBertSize};
 //!
-//! fn main() -> Result<()> {
-//!     // Create a zero-shot classification pipeline
-//!     let pipeline = ZeroShotClassificationPipelineBuilder::modernbert(ModernBertSize::Base)
-//!         .build()?;
+//! # fn main() -> transformers::error::Result<()> {
+//! let pipeline = ZeroShotClassificationPipelineBuilder::modernbert(ModernBertSize::Base).build()?;
+//! let labels = &["sports", "politics", "technology", "entertainment"];
 //!
-//!     // Classify text into arbitrary categories
-//!     let text = "The movie was absolutely fantastic!";
-//!     let labels = ["positive", "negative", "neutral"];
-//!     let results = pipeline.classify(text, &labels)?;
+//! let results = pipeline.classify("The team won the championship game!", labels)?;
 //!
-//!     for result in results {
-//!         println!("Label: {} (confidence: {:.2})", result.label, result.score);
-//!     }
-//!     Ok(())
+//! // sports: 0.87, entertainment: 0.08, politics: 0.03, technology: 0.02
+//! for r in results {
+//!     println!("{}: {:.2}", r.label, r.score);
 //! }
+//! # Ok(())
+//! # }
 //! ```
+//!
+//! # Single-Label vs Multi-Label
+//!
+//! **Single-label** (`classify`): Scores sum to 1.0 - use when categories are mutually exclusive.
+//!
+//! **Multi-label** (`classify_multi_label`): Independent probabilities - use when multiple labels can apply.
+//!
+//! ```rust,no_run
+//! # use transformers::zero_shot::{ZeroShotClassificationPipelineBuilder, ModernBertSize};
+//! # fn main() -> transformers::error::Result<()> {
+//! # let pipeline = ZeroShotClassificationPipelineBuilder::modernbert(ModernBertSize::Base).build()?;
+//! let labels = &["urgent", "billing", "technical"];
+//!
+//! // This email could be both urgent AND billing-related
+//! let results = pipeline.classify_multi_label(
+//!     "URGENT: Your payment failed, please update your card immediately!",
+//!     labels,
+//! )?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Batch Inference
+//!
+//! ```rust,no_run
+//! # use transformers::zero_shot::{ZeroShotClassificationPipelineBuilder, ModernBertSize};
+//! # fn main() -> transformers::error::Result<()> {
+//! # let pipeline = ZeroShotClassificationPipelineBuilder::modernbert(ModernBertSize::Base).build()?;
+//! let texts = &["Great goal by Messi!", "New iPhone announced", "Senate passes bill"];
+//! let labels = &["sports", "tech", "politics"];
+//!
+//! let results = pipeline.classify_batch(texts, labels)?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Supported Models
+//!
+//! For now only ModernBERT is supported, but I have plans to add more models in the future!
+//!
+//! | Model | Sizes | Builder Method |
+//! |-------|-------|----------------|
+//! | ModernBERT | `Base`, `Large` | [`ZeroShotClassificationPipelineBuilder::modernbert`] |
 
-pub mod builder;
-pub mod model;
-pub mod pipeline;
+// ============ Internal API ============
 
-pub use builder::ZeroShotClassificationPipelineBuilder;
-pub use model::ZeroShotClassificationModel;
-pub use pipeline::ZeroShotClassificationPipeline;
+pub(crate) mod builder;
+pub(crate) mod model;
+pub(crate) mod pipeline;
+
+// ============ Public API ============
 
 pub use crate::models::ModernBertSize;
-pub use crate::Result;
+pub use builder::ZeroShotClassificationPipelineBuilder;
+pub use model::LabelScores;
+pub use pipeline::{ClassificationResult, ZeroShotClassificationPipeline};
+
+/// Only for generic annotations. Use [`ZeroShotClassificationPipelineBuilder::modernbert`].
+pub type ZeroShotModernBert = crate::models::modernbert::ZeroShotModernBertModel;

@@ -1,33 +1,36 @@
-use crate::error::ToolError;
-use crate::Result;
+use crate::error::Result;
 use futures::future::BoxFuture;
 use std::sync::Arc;
 
-/// Strategy for handling tool errors.
-#[derive(Debug, Clone)]
+/// How to handle tool execution errors during generation.
+#[derive(Debug, Clone, Default)]
 pub enum ErrorStrategy {
-    /// Stop execution and return the error (default behavior).
+    /// Stop generation and return the error to the caller.
+    #[default]
     Fail,
-    /// Pass the error message to the model and let it decide how to respond.
+    /// Return the error message to the model so it can attempt to recover or retry. (Default)
     ReturnToModel,
 }
 
-impl Default for ErrorStrategy {
-    fn default() -> Self {
-        Self::Fail
-    }
-}
-
+/// Trait for types that support tool registration and execution.
 pub trait ToolCalling {
-    fn register_tool(&mut self, tool: Tool) -> Result<()>;
-    fn unregister_tool(&mut self, name: &str) -> Result<()>;
-    fn clear_tools(&mut self) -> Result<()>;
+    /// Register a tool for use during generation.
+    fn register_tool(&mut self, tool: Tool);
+    /// Remove a tool by name. No-op if not found.
+    fn unregister_tool(&mut self, name: &str);
+    /// Remove all registered tools.
+    fn clear_tools(&mut self);
+    /// Returns a list of all registered tools.
     fn registered_tools(&self) -> Vec<Tool>;
 }
 
 /// Future type returned by tool functions.
 pub type ToolFuture = BoxFuture<'static, Result<String>>;
 
+/// A tool that can be invoked by the model during generation.
+///
+/// Tools are created via the `#[tool]` attribute macro rather than
+/// constructed directly.
 #[derive(serde::Serialize)]
 pub struct Tool {
     pub(crate) name: String,
@@ -36,8 +39,6 @@ pub struct Tool {
     pub(crate) schema: schemars::schema::RootSchema,
     #[serde(skip_serializing)]
     pub(crate) function: Arc<dyn Fn(serde_json::Value) -> ToolFuture + Send + Sync>,
-    #[serde(skip_serializing)]
-    pub(crate) error_strategy: ErrorStrategy,
     #[serde(skip_serializing)]
     pub(crate) max_retries: u32,
 }
@@ -49,20 +50,19 @@ impl Clone for Tool {
             description: self.description.clone(),
             schema: self.schema.clone(),
             function: Arc::clone(&self.function),
-            error_strategy: self.error_strategy.clone(),
             max_retries: self.max_retries,
         }
     }
 }
 
 impl Tool {
-    /// Create a new tool description that can be registered with a model.
+    /// Creates a new Tool. This should only be used by the `#[tool]` macro.
+    #[doc(hidden)]
     pub fn new(
         name: String,
         description: String,
         schema: schemars::schema::RootSchema,
         function: impl Fn(serde_json::Value) -> ToolFuture + Send + Sync + 'static,
-        error_strategy: ErrorStrategy,
         max_retries: u32,
     ) -> Self {
         Self {
@@ -70,85 +70,62 @@ impl Tool {
             description,
             schema,
             function: Arc::new(function),
-            error_strategy,
             max_retries,
         }
     }
 
-    /// Get the tool name.
+    /// Returns the tool's name.
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    /// Execute the tool with the given parameters, returning its result.
-    pub async fn call(&self, parameters: serde_json::Value) -> Result<String> {
+    pub(crate) async fn call(&self, parameters: serde_json::Value) -> Result<String> {
         self.validate(&parameters)?;
         (self.function)(parameters).await
     }
 
-    /// Get a reference to the declared parameters schema.
+    /// Returns the JSON schema describing the tool's parameters.
     pub fn schema(&self) -> &schemars::schema::RootSchema {
         &self.schema
     }
 
-    /// Get the description of the tool.
+    /// Returns the tool's description (shown to the model). Constructed using the tool function's doc string.
     pub fn description(&self) -> &str {
         &self.description
     }
 
-    /// Get the error strategy for this tool.
-    pub fn error_strategy(&self) -> &ErrorStrategy {
-        &self.error_strategy
-    }
-
-    /// Get the maximum number of retries for this tool.
-    pub fn max_retries(&self) -> u32 {
+    pub(crate) fn max_retries(&self) -> u32 {
         self.max_retries
     }
 
-    /// Validate a parameters value against the tool schema.
-    pub fn validate(&self, params: &serde_json::Value) -> Result<()> {
-        let schema = serde_json::to_value(&self.schema).map_err(|e| ToolError::SchemaError {
-            name: self.name.clone(),
-            reason: format!("schema serialization failed: {e}"),
+    fn validate(&self, params: &serde_json::Value) -> Result<()> {
+        let schema = serde_json::to_value(&self.schema).map_err(|e| {
+            crate::error::TransformersError::Tool(format!(
+                "Schema error for '{}': schema serialization failed: {}",
+                self.name, e
+            ))
         })?;
         let compiled = jsonschema::JSONSchema::options()
             .with_draft(jsonschema::Draft::Draft7)
             .compile(&schema)
-            .map_err(|e| ToolError::SchemaError {
-                name: self.name.clone(),
-                reason: format!("invalid schema: {e}"),
+            .map_err(|e| {
+                crate::error::TransformersError::Tool(format!(
+                    "Schema error for '{}': invalid schema: {}",
+                    self.name, e
+                ))
             })?;
 
-        let validation_result = compiled.validate(params).map_err(|errors| {
-            errors
-                .map(|error| error.to_string())
-                .collect::<Vec<String>>()
-        });
-
+        let validation_result = compiled.validate(params);
         match validation_result {
             Ok(_) => Ok(()),
-            Err(messages) => {
+            Err(errors) => {
+                let messages: Vec<String> = errors.map(|e| e.to_string()).collect();
                 let error_msg = messages.join(", ");
-                Err(ToolError::InvalidParams {
-                    name: self.name.clone(),
-                    reason: error_msg,
-                }
-                .into())
+                Err(crate::error::TransformersError::Tool(format!(
+                    "Invalid parameters for '{}': {}",
+                    self.name, error_msg
+                )))
             }
         }
-    }
-}
-
-/// Local trait to convert various user-facing representations into a [`Tool`].
-/// Having our own trait lets us implement it for function pointers generated by
-/// the `#[tool]` macro without violating Rust's orphan rules.
-pub trait IntoTool {
-    fn into_tool(self) -> Tool;
-}
-
-impl IntoTool for Tool {
-    fn into_tool(self) -> Tool {
-        self
     }
 }

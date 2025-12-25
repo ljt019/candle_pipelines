@@ -1,6 +1,9 @@
 use std::io::Write;
-use transformers::pipelines::text_generation::*;
-use transformers::Result;
+
+use transformers::error::Result;
+use transformers::text_generation::{
+    tool, tools, Qwen3Size, TagParts, TextGenerationPipelineBuilder,
+};
 
 #[tool]
 /// Calculates the average speed given distance and time
@@ -25,7 +28,7 @@ async fn main() -> Result<()> {
         .build_xml(&["think", "tool_result", "tool_call"])
         .await?;
 
-    pipeline.register_tools(tools![get_weather]).await?;
+    pipeline.register_tools(tools![get_weather]).await;
 
     // Stream completion - this will yield Event items
     let mut stream = pipeline

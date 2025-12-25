@@ -1,24 +1,46 @@
 use super::model::SentimentAnalysisModel;
 use super::pipeline::SentimentAnalysisPipeline;
+use crate::error::Result;
 use crate::pipelines::cache::ModelOptions;
-use crate::pipelines::utils::{
-    BasePipelineBuilder, DeviceRequest, DeviceSelectable, StandardPipelineBuilder,
-};
-use crate::Result;
+use crate::pipelines::utils::{BasePipelineBuilder, DeviceRequest, StandardPipelineBuilder};
 
+crate::pipelines::utils::impl_device_methods!(delegated: SentimentAnalysisPipelineBuilder<M: SentimentAnalysisModel>);
+
+/// Builder for creating [`SentimentAnalysisPipeline`] instances.
+///
+/// Use [`Self::modernbert`] as the entry point.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// # use transformers::sentiment::{SentimentAnalysisPipelineBuilder, ModernBertSize};
+/// # fn main() -> transformers::error::Result<()> {
+/// let pipeline = SentimentAnalysisPipelineBuilder::modernbert(ModernBertSize::Base)
+///     .cuda(0)
+///     .build()?;
+/// # Ok(())
+/// # }
+/// ```
 pub struct SentimentAnalysisPipelineBuilder<M: SentimentAnalysisModel>(
     StandardPipelineBuilder<M::Options>,
 );
 
 impl<M: SentimentAnalysisModel> SentimentAnalysisPipelineBuilder<M> {
-    pub fn new(options: M::Options) -> Self {
+    pub(crate) fn new(options: M::Options) -> Self {
         Self(StandardPipelineBuilder::new(options))
     }
-}
 
-impl<M: SentimentAnalysisModel> DeviceSelectable for SentimentAnalysisPipelineBuilder<M> {
-    fn device_request_mut(&mut self) -> &mut DeviceRequest {
-        self.0.device_request_mut()
+    /// Builds the pipeline with configured settings.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if model loading or device initialization fails.
+    pub fn build(self) -> Result<SentimentAnalysisPipeline<M>>
+    where
+        M: Clone + Send + Sync + 'static,
+        M::Options: ModelOptions + Clone,
+    {
+        BasePipelineBuilder::build(self)
     }
 }
 
@@ -52,7 +74,8 @@ where
     }
 }
 
-impl SentimentAnalysisPipelineBuilder<crate::models::modernbert::SentimentModernBertModel> {
+impl SentimentAnalysisPipelineBuilder<super::SentimentModernBert> {
+    /// Creates a builder for a ModernBERT sentiment analysis model.
     pub fn modernbert(size: crate::models::ModernBertSize) -> Self {
         Self::new(size)
     }

@@ -1,14 +1,12 @@
 use super::model::{LanguageModelContext, TextGenerationModel};
 use super::params::{apply_repeat_penalty, initialize_logits_processor, GenerationParams};
 use super::stats::GenerationStats;
-use crate::error::{GenerationError, TokenizationError};
-use crate::Result;
+use crate::error::{Result, TransformersError};
 use candle_core::Tensor;
 use std::sync::Arc;
 use tokenizers::Tokenizer;
 use tokio::sync::Mutex;
 
-/// Base structure containing common fields for both pipeline types
 pub struct BasePipeline<M: TextGenerationModel> {
     pub model: Arc<Mutex<M>>,
     pub model_tokenizer: Tokenizer,
@@ -16,7 +14,6 @@ pub struct BasePipeline<M: TextGenerationModel> {
     pub gen_params: Arc<Mutex<GenerationParams>>,
     pub device: candle_core::Device,
     pub last_processed_tokens: Arc<Mutex<Vec<u32>>>,
-    pub special_strings: std::collections::HashSet<String>,
     pub last_generation_stats: std::sync::Arc<std::sync::Mutex<Option<GenerationStats>>>,
 }
 
@@ -29,7 +26,6 @@ impl<M: TextGenerationModel> BasePipeline<M> {
         let model_tokenizer = model.get_tokenizer().await?;
         let context = model.new_context();
 
-        // Collect textual forms of special tokens for display filtering
         let mut special_strings: std::collections::HashSet<String> = model_tokenizer
             .get_added_tokens_decoder()
             .values()
@@ -37,7 +33,6 @@ impl<M: TextGenerationModel> BasePipeline<M> {
             .map(|tok| tok.content.clone())
             .collect();
 
-        // Add standard special tokens that might not be in the decoder
         special_strings.insert("<|im_start|>".to_string());
         special_strings.insert("<|im_end|>".to_string());
         special_strings.insert("<|im_sep|>".to_string());
@@ -49,12 +44,10 @@ impl<M: TextGenerationModel> BasePipeline<M> {
             gen_params: Arc::new(Mutex::new(gen_params)),
             device,
             last_processed_tokens: Arc::new(Mutex::new(Vec::new())),
-            special_strings,
             last_generation_stats: std::sync::Arc::new(std::sync::Mutex::new(None)),
         })
     }
 
-    /// Get the current position in the context (number of cached tokens)
     pub async fn context_position(&self) -> usize {
         self.context.lock().await.position()
     }
@@ -68,8 +61,6 @@ impl<M: TextGenerationModel> BasePipeline<M> {
     }
 
     pub async fn can_reuse_cache(&self, new_tokens: &[u32]) -> bool {
-        // Cache can be reused if the new prompt begins with the exact token
-        // sequence that is already cached.
         new_tokens.starts_with(&self.last_processed_tokens.lock().await)
     }
 
@@ -91,7 +82,7 @@ impl<M: TextGenerationModel> BasePipeline<M> {
         input_tokens: &[u32],
         prompt_token_count: usize,
     ) -> Result<(String, GenerationStats)> {
-        const CHUNK_SIZE: usize = 64; // Must be <= initial kv cache size
+        const CHUNK_SIZE: usize = 64;
 
         let params = self.gen_params.lock().await.clone();
 
@@ -101,7 +92,6 @@ impl<M: TextGenerationModel> BasePipeline<M> {
         let mut stats = GenerationStats::new();
         stats.set_prompt_tokens(prompt_token_count);
 
-        // Feed the initial prompt in manageable chunks to allow the KV cache to grow.
         let mut idx = 0;
         let mut last_logits = None;
         while idx < input_tokens.len() {
@@ -117,15 +107,15 @@ impl<M: TextGenerationModel> BasePipeline<M> {
             idx = end;
         }
 
-        // Safety: there is always at least one chunk, so last_logits is Some
         let mut next_token = logits_processor.sample(&last_logits.expect("missing logits"))?;
         generated_tokens.push(next_token);
         stats.record_token();
 
-        // Generate autoregressively
         let eos_tokens = self.model.lock().await.get_eos_tokens();
         if eos_tokens.is_empty() {
-            return Err(GenerationError::NoEosTokens.into());
+            return Err(TransformersError::Unexpected(
+                "No EOS tokens configured for model. Cannot determine when to stop.".to_string(),
+            ));
         }
         for _ in 0..params.max_len {
             if eos_tokens.contains(&next_token) {
@@ -153,14 +143,12 @@ impl<M: TextGenerationModel> BasePipeline<M> {
             stats.record_token();
         }
 
-        // Filter out EOS tokens before decoding
         let eos_tokens = self.model.lock().await.get_eos_tokens();
         let filtered_tokens: Vec<u32> = generated_tokens
             .into_iter()
             .filter(|&token| !eos_tokens.contains(&token))
             .collect();
 
-        // Fast multi-token decode in a single call instead of per-token concat
         let generated_tokens_str = self
             .model_tokenizer
             .decode(&filtered_tokens, /*skip_special_tokens=*/ true)
@@ -175,20 +163,6 @@ impl<M: TextGenerationModel> BasePipeline<M> {
         Ok((generated_tokens_str, stats))
     }
 
-    /// Stream tokens from the model given input tokens.
-    pub fn token_stream<'a>(
-        &'a self,
-        input_tokens: Vec<u32>,
-    ) -> (
-        std::sync::Arc<std::sync::Mutex<GenerationStats>>,
-        impl futures::Stream<Item = Result<String>> + Send + 'a,
-    )
-    where
-        M: 'a + Send,
-    {
-        self.token_stream_with_prompt_count(input_tokens, None)
-    }
-
     pub fn token_stream_with_prompt_count<'a>(
         &'a self,
         input_tokens: Vec<u32>,
@@ -200,7 +174,6 @@ impl<M: TextGenerationModel> BasePipeline<M> {
     where
         M: 'a + Send,
     {
-        // Capture everything the async generator needs by value
         let device = self.device.clone();
         let model = std::sync::Arc::clone(&self.model);
         let tokenizer = self.model_tokenizer.clone();
@@ -220,7 +193,9 @@ impl<M: TextGenerationModel> BasePipeline<M> {
             let params = gen_params.lock().await.clone();
             let eos_tokens = model.lock().await.get_eos_tokens();
             if eos_tokens.is_empty() {
-                Err(GenerationError::NoEosTokens)?;
+                Err(TransformersError::Unexpected(
+                    "No EOS tokens configured for model. Cannot determine when to stop.".to_string(),
+                ))?;
             }
             const CHUNK_SIZE: usize = 64;
 
@@ -252,14 +227,14 @@ impl<M: TextGenerationModel> BasePipeline<M> {
 
             if !eos_tokens.contains(&next_token) {
                 if let Some(chunk) =
-                    dec_full.step(next_token).map_err(|e| TokenizationError::DecodeFailed { token_id: next_token, reason: e.to_string() })?
+                    dec_full.step(next_token).map_err(|e| TransformersError::Tokenization(format!("Failed to decode token {next_token}: {e}")))?
                 {
                     yield chunk;
                 }
             } else {
                 let _ = dec_full
                     .step(next_token)
-                    .map_err(|e| TokenizationError::DecodeFailed { token_id: next_token, reason: e.to_string() })?;
+                    .map_err(|e| TransformersError::Tokenization(format!("Failed to decode token {next_token}: {e}")))?;
             }
 
             for _ in 0..params.max_len {
@@ -290,14 +265,14 @@ impl<M: TextGenerationModel> BasePipeline<M> {
                 if !eos_tokens.contains(&next_token) {
                     if let Some(chunk) = dec_full
                         .step(next_token)
-                        .map_err(|e| TokenizationError::DecodeFailed { token_id: next_token, reason: e.to_string() })?
+                        .map_err(|e| TransformersError::Tokenization(format!("Failed to decode token {next_token}: {e}")))?
                     {
                         yield chunk;
                     }
                 } else {
                     let _ = dec_full
                         .step(next_token)
-                        .map_err(|e| TokenizationError::DecodeFailed { token_id: next_token, reason: e.to_string() })?;
+                        .map_err(|e| TransformersError::Tokenization(format!("Failed to decode token {next_token}: {e}")))?;
                 }
             }
 

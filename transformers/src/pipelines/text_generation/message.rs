@@ -1,17 +1,17 @@
+/// The role of a message in a conversation.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
-/// Role of a message in a chat conversation.
 pub enum Role {
-    /// System messages provide instructions to the model.
+    /// System instructions that guide the model's behavior.
     System,
-    /// User messages are sent from the user to the model.
+    /// A message from the user.
     User,
-    /// Assistant messages are responses from the model.
+    /// A response from the assistant/model.
     Assistant,
 }
 
 impl Role {
-    /// Returns the string representation of the role.
+    /// Returns the role as a lowercase string slice.
     pub fn as_str(&self) -> &'static str {
         match self {
             Role::System => "system",
@@ -27,15 +27,15 @@ impl std::fmt::Display for Role {
     }
 }
 
+/// A single message in a conversation.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-/// An individual message in a chat.
 pub struct Message {
     role: Role,
     content: String,
 }
 
 impl Message {
-    /// Create a new system message.
+    /// Helper to construct a system message.
     pub fn system(content: &str) -> Self {
         Self {
             role: Role::System,
@@ -43,7 +43,7 @@ impl Message {
         }
     }
 
-    /// Create a new user message.
+    /// Helper to construct a user message.
     pub fn user(content: &str) -> Self {
         Self {
             role: Role::User,
@@ -51,7 +51,7 @@ impl Message {
         }
     }
 
-    /// Create a new assistant message.
+    /// Helper to construct an assistant message.
     pub fn assistant(content: &str) -> Self {
         Self {
             role: Role::Assistant,
@@ -59,22 +59,25 @@ impl Message {
         }
     }
 
-    /// Get the role of the message.
+    /// Returns the message's role.
     pub fn role(&self) -> &Role {
         &self.role
     }
 
-    /// Get the content of the message.
+    /// Returns the message content.
     pub fn content(&self) -> &str {
         &self.content
     }
 }
 
-/// Trait extension for Vec<Message> that provides convenient methods for
-/// accessing common message types.
+/// Extension trait for slices of messages.
+#[allow(dead_code)]
 pub trait MessageVecExt {
+    /// Returns the content of the last user message, if any.
     fn last_user(&self) -> Option<&str>;
+    /// Returns the content of the last assistant message, if any.
     fn last_assistant(&self) -> Option<&str>;
+    /// Returns the content of the system message, if any.
     fn system(&self) -> Option<&str>;
 }
 

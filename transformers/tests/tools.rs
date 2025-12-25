@@ -1,11 +1,9 @@
-//! Integration tests for tool calling functionality
-//! Run with: cargo test --features integration
+#![cfg(feature = "cuda")]
 
-#![cfg(feature = "integration")]
-
-use transformers::pipelines::text_generation::*;
-use transformers::pipelines::utils::DeviceSelectable;
-use transformers::{Result, ToolError};
+use transformers::error::{Result, TransformersError};
+use transformers::text_generation::{
+    tool, tools, ErrorStrategy, Qwen3Size, TextGenerationPipelineBuilder,
+};
 
 #[tool]
 fn get_weather(city: String) -> Result<String> {
@@ -13,15 +11,16 @@ fn get_weather(city: String) -> Result<String> {
 }
 
 #[tokio::test]
-async fn tool_calling_basic() -> transformers::Result<()> {
+async fn tool_calling_basic() -> Result<()> {
     let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
-        .cuda_device(0)
+        .cuda(0)
         .seed(42)
         .max_len(150)
+        .tool_error_strategy(ErrorStrategy::ReturnToModel)
         .build()
         .await?;
 
-    pipeline.register_tools(tools![get_weather]).await?;
+    pipeline.register_tools(tools![get_weather]).await;
     let out = pipeline
         .completion_with_tools("What's the weather like in Paris today?")
         .await?;
@@ -38,46 +37,44 @@ fn echo(msg: String) -> String {
 }
 
 #[tokio::test]
-async fn tool_registration() -> transformers::Result<()> {
+async fn tool_registration() -> Result<()> {
     let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
-        .cuda_device(0)
+        .cuda(0)
         .seed(0)
         .max_len(20)
         .build()
         .await?;
 
-    pipeline.register_tools(tools![echo]).await?;
+    pipeline.register_tools(tools![echo]).await;
     assert_eq!(pipeline.registered_tools().await.len(), 1);
 
-    pipeline.unregister_tool("echo").await?;
+    pipeline.unregister_tool("echo").await;
     assert!(pipeline.registered_tools().await.is_empty());
 
-    pipeline.register_tools(tools![echo]).await?;
-    pipeline.clear_tools().await?;
+    pipeline.register_tools(tools![echo]).await;
+    pipeline.clear_tools().await;
     assert!(pipeline.registered_tools().await.is_empty());
     Ok(())
 }
 
-#[tool(on_error = ErrorStrategy::Fail, retries = 1)]
+#[tool(retries = 1)]
 fn fail_tool() -> Result<String> {
-    Err(ToolError::ExecutionFailed {
-        name: "fail_tool".into(),
-        attempts: 1,
-        reason: "boom".into(),
-    }
-    .into())
+    Err(TransformersError::Tool(
+        "fail_tool failed: boom".to_string(),
+    ))
 }
 
 #[tokio::test]
-async fn tool_error_fail_strategy() -> transformers::Result<()> {
+async fn tool_error_fail_strategy() -> Result<()> {
     let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
-        .cuda_device(0)
+        .cuda(0)
         .seed(0)
         .max_len(200)
+        .tool_error_strategy(ErrorStrategy::Fail)
         .build()
         .await?;
 
-    pipeline.register_tools(tools![fail_tool]).await?;
+    pipeline.register_tools(tools![fail_tool]).await;
     let res = pipeline.completion_with_tools("call fail_tool").await;
     assert!(res.is_err());
     Ok(())
