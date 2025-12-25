@@ -345,9 +345,8 @@ impl TextGenerationModel for Gemma3Model {
         self.create_context()
     }
 
-    fn clear_context(&self, context: &mut Context) -> Result<()> {
+    fn clear_context(&self, context: &mut Context) {
         context.reset_with(&self.base_weights);
-        Ok(())
     }
 
     fn default_generation_params(

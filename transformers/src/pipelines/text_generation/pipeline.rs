@@ -296,32 +296,30 @@ impl<M: TextGenerationModel + Send> TextGenerationPipeline<M> {
 }
 
 impl<M: TextGenerationModel + ToggleableReasoning> TextGenerationPipeline<M> {
-    pub async fn set_reasoning(&self, enable: bool) -> Result<()> {
+    pub async fn set_reasoning(&self, enable: bool) {
         self.base.model.lock().await.set_reasoning(enable)
     }
 }
 
 impl<M: TextGenerationModel + ToolCalling + Send> TextGenerationPipeline<M> {
-    pub async fn unregister_tool(&self, name: &str) -> Result<()> {
+    pub async fn unregister_tool(&self, name: &str) {
         self.base.model.lock().await.unregister_tool(name)
     }
 
-    pub async fn clear_tools(&self) -> Result<()> {
+    pub async fn clear_tools(&self) {
         self.base.model.lock().await.clear_tools()
     }
 
-    pub async fn register_tools(&self, tools: Vec<Tool>) -> Result<()> {
+    pub async fn register_tools(&self, tools: Vec<Tool>) {
         for tool in tools {
-            self.base.model.lock().await.register_tool(tool)?;
+            self.base.model.lock().await.register_tool(tool);
         }
-        Ok(())
     }
 
-    pub async fn unregister_tools(&self, tools: Vec<Tool>) -> Result<()> {
+    pub async fn unregister_tools(&self, tools: Vec<Tool>) {
         for tool in tools {
-            self.base.model.lock().await.unregister_tool(&tool.name)?;
+            self.base.model.lock().await.unregister_tool(&tool.name);
         }
-        Ok(())
     }
 
     pub async fn registered_tools(&self) -> Vec<Tool> {

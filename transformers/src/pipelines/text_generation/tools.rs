@@ -1,5 +1,4 @@
-use crate::error::Result;
-use crate::error::ToolError;
+use crate::error::{Result, ToolError};
 use futures::future::BoxFuture;
 use std::sync::Arc;
 
@@ -11,9 +10,9 @@ pub enum ErrorStrategy {
 }
 
 pub trait ToolCalling {
-    fn register_tool(&mut self, tool: Tool) -> Result<()>;
-    fn unregister_tool(&mut self, name: &str) -> Result<()>;
-    fn clear_tools(&mut self) -> Result<()>;
+    fn register_tool(&mut self, tool: Tool);
+    fn unregister_tool(&mut self, name: &str);
+    fn clear_tools(&mut self);
     fn registered_tools(&self) -> Vec<Tool>;
 }
 

@@ -34,7 +34,7 @@ pub trait TextGenerationModel {
 
     fn new_context(&self) -> Self::Context;
 
-    fn clear_context(&self, context: &mut Self::Context) -> Result<()>;
+    fn clear_context(&self, context: &mut Self::Context);
 
     fn default_generation_params(
         &self,
@@ -47,5 +47,5 @@ pub trait TextGenerationModel {
 pub trait Reasoning {}
 
 pub trait ToggleableReasoning {
-    fn set_reasoning(&mut self, enable: bool) -> Result<()>;
+    fn set_reasoning(&mut self, enable: bool);
 }

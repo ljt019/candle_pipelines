@@ -57,6 +57,15 @@ pub enum TransformersError {
     Unexpected(Box<dyn std::error::Error + Send + Sync>),
 }
 
+/*
+DownloadError,
+TokenizationError,
+ToolError,
+DeviceError,
+
+UnexpectedError
+*/
+
 /// Errors that can occur during a file download operation.
 ///
 /// Users may be able to recover by retrying, checking network connectivity,

@@ -12,6 +12,7 @@ use super::xml_pipeline::XmlTextGenerationPipeline;
 
 crate::pipelines::utils::impl_device_methods!(direct: TextGenerationPipelineBuilder<M: TextGenerationModel>);
 
+#[derive(Clone)]
 pub struct TextGenerationPipelineBuilder<M: TextGenerationModel> {
     model_options: M::Options,
     gen_params: GenerationParams,

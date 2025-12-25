@@ -28,7 +28,7 @@ async fn main() -> Result<()> {
         .build_xml(&["think", "tool_result", "tool_call"])
         .await?;
 
-    pipeline.register_tools(tools![get_weather]).await?;
+    pipeline.register_tools(tools![get_weather]).await;
 
     // Stream completion - this will yield Event items
     let mut stream = pipeline

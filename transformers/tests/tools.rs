@@ -45,14 +45,14 @@ async fn tool_registration() -> Result<()> {
         .build()
         .await?;
 
-    pipeline.register_tools(tools![echo]).await?;
+    pipeline.register_tools(tools![echo]).await;
     assert_eq!(pipeline.registered_tools().await.len(), 1);
 
-    pipeline.unregister_tool("echo").await?;
+    pipeline.unregister_tool("echo").await;
     assert!(pipeline.registered_tools().await.is_empty());
 
-    pipeline.register_tools(tools![echo]).await?;
-    pipeline.clear_tools().await?;
+    pipeline.register_tools(tools![echo]).await;
+    pipeline.clear_tools().await;
     assert!(pipeline.registered_tools().await.is_empty());
     Ok(())
 }

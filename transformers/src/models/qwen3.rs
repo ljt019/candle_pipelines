@@ -442,9 +442,8 @@ impl TextGenerationModel for Qwen3Model {
         Context::new(self.weights.clone(), self.info.clone())
     }
 
-    fn clear_context(&self, context: &mut Context) -> Result<()> {
+    fn clear_context(&self, context: &mut Context) {
         context.reset();
-        Ok(())
     }
 
     fn default_generation_params(
@@ -464,34 +463,30 @@ impl TextGenerationModel for Qwen3Model {
 }
 
 impl ToggleableReasoning for Qwen3Model {
-    fn set_reasoning(&mut self, enable: bool) -> Result<()> {
+    fn set_reasoning(&mut self, enable: bool) {
         self.reasoning = enable;
-        Ok(())
     }
 }
 
 use crate::pipelines::text_generation::tools::Tool;
 
 impl ToolCalling for Qwen3Model {
-    fn register_tool(&mut self, tool: Tool) -> Result<()> {
+    fn register_tool(&mut self, tool: Tool) {
         if let Some(pos) = self.tools.iter().position(|t| t.name() == tool.name()) {
             self.tools[pos] = tool;
         } else {
             self.tools.push(tool);
         }
-        Ok(())
     }
 
-    fn unregister_tool(&mut self, name: &str) -> Result<()> {
+    fn unregister_tool(&mut self, name: &str) {
         if let Some(pos) = self.tools.iter().position(|t| t.name() == name) {
             self.tools.remove(pos);
         }
-        Ok(())
     }
 
-    fn clear_tools(&mut self) -> Result<()> {
+    fn clear_tools(&mut self) {
         self.tools.clear();
-        Ok(())
     }
 
     fn registered_tools(&self) -> Vec<Tool> {

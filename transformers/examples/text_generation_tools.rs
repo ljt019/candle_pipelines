@@ -34,7 +34,7 @@ async fn main() -> Result<()> {
 
     pipeline
         .register_tools(tools![get_temperature, get_humidity])
-        .await?;
+        .await;
 
     let mut stream = pipeline
         .completion_stream_with_tools("What's the temp and humidity like in Tokyo?")
@@ -47,7 +47,7 @@ async fn main() -> Result<()> {
         std::io::stdout().flush().unwrap();
     }
 
-    pipeline.unregister_tools(tools![get_temperature]).await?;
+    pipeline.unregister_tools(tools![get_temperature]).await;
 
     let mut stream = pipeline
         .completion_stream_with_tools("What's the temp and humidity like in Tokyo?")
