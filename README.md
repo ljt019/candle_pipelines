@@ -3,7 +3,7 @@
 <!-- CI / Workflow Badges -->
 [<img alt="crates.io" src="https://img.shields.io/crates/v/candle_pipelines.svg?style=for-the-badge&color=fc8d62&logo=rust" height="19">](https://crates.io/crates/candle_pipelines)
 [<img alt="docs.rs" src="https://img.shields.io/badge/docs.rs-candle__pipelines-66c2a5?style=for-the-badge&labelColor=555555&logo=docs.rs" height="19">](https://docs.rs/candle_pipelines)
-![CI](https://github.com/ljt019/transformers-rs/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/ljt019/candle_pipelines/actions/workflows/ci.yml/badge.svg)
 
 > [!warning]
 > ***This crate is under active development. APIs may change as features are still being added, and things tweaked.***
@@ -407,9 +407,3 @@ fn main() -> anyhow::Result<()> {
 
 - Add more model families and sizes
 - Support additional pipelines (summarization, classification)
-- CUDA support for faster inference
-- Direct model interface (beyond pipeline)
-
-## Credits
-
-A special thanks to [Diaconu Radu-Mihai](https://github.com/radudiaconu0/) for transferring the `transformers` crate name on crates.io
