@@ -8,7 +8,7 @@ use super::params::GenerationParams;
 use super::stats::GenerationStats;
 use super::tools::{ErrorStrategy, Tool, ToolCalling};
 use crate::error::Result;
-use crate::error::{TokenizationError, ToolError};
+use crate::error::TransformersError;
 use async_stream::try_stream;
 use futures::StreamExt;
 use regex::Regex;
@@ -87,7 +87,7 @@ impl<M: TextGenerationModel + Send> TextGenerationPipeline<M> {
             .base
             .model_tokenizer
             .encode(text, false)
-            .map_err(|e| TokenizationError::encode_failed(text, e.to_string()))?;
+            .map_err(|e| TransformersError::Tokenization(format!("Tokenization failed on '{}...': {}", text.chars().take(50).collect::<String>(), e)))?;
         Ok(tokens.get_ids().len())
     }
 
@@ -156,7 +156,7 @@ impl<M: TextGenerationModel + Send> TextGenerationPipeline<M> {
             .base
             .model_tokenizer
             .encode(templated_prompt.as_str(), true)
-            .map_err(|e| TokenizationError::encode_failed(&templated_prompt, e.to_string()))?
+            .map_err(|e| TransformersError::Tokenization(format!("Tokenization failed on '{}...': {}", templated_prompt.chars().take(50).collect::<String>(), e)))?
             .get_ids()
             .to_vec();
 
@@ -186,7 +186,7 @@ impl<M: TextGenerationModel + Send> TextGenerationPipeline<M> {
             .base
             .model_tokenizer
             .encode(templated_prompt.as_str(), true)
-            .map_err(|e| TokenizationError::encode_failed(&templated_prompt, e.to_string()))?
+            .map_err(|e| TransformersError::Tokenization(format!("Tokenization failed on '{}...': {}", templated_prompt.chars().take(50).collect::<String>(), e)))?
             .get_ids()
             .to_vec();
 
@@ -241,7 +241,7 @@ impl<M: TextGenerationModel + Send> TextGenerationPipeline<M> {
                     .base
                     .model_tokenizer
                     .encode(templated.as_str(), true)
-                    .map_err(|e| TokenizationError::encode_failed(&templated, e.to_string()))?
+                    .map_err(|e| TransformersError::Tokenization(format!("Tokenization failed on '{}...': {}", templated.chars().take(50).collect::<String>(), e)))?
                     .get_ids()
                     .to_vec();
                 let prompt_tokens = tokens.len();
@@ -253,7 +253,7 @@ impl<M: TextGenerationModel + Send> TextGenerationPipeline<M> {
                     .base
                     .model_tokenizer
                     .encode(templated.as_str(), true)
-                    .map_err(|e| TokenizationError::encode_failed(&templated, e.to_string()))?
+                    .map_err(|e| TransformersError::Tokenization(format!("Tokenization failed on '{}...': {}", templated.chars().take(50).collect::<String>(), e)))?
                     .get_ids()
                     .to_vec();
 
@@ -339,10 +339,9 @@ impl<M: TextGenerationModel + ToolCalling + Send> TextGenerationPipeline<M> {
                 tools
                     .iter()
                     .find(|t| t.name == call.name)
-                    .ok_or_else(|| ToolError::NotFound {
-                        name: call.name.clone(),
-                        available: available_tools,
-                    })?;
+                    .ok_or_else(|| TransformersError::Tool(
+                        format!("Tool '{}' not found. Registered tools: {}", call.name, available_tools.join(", "))
+                    ))?;
 
             let args = call.arguments.clone();
             let mut attempts = 0u32;
@@ -386,7 +385,7 @@ impl<M: TextGenerationModel + ToolCalling + Send> TextGenerationPipeline<M> {
     pub async fn completion_with_tools<'a>(&self, input: impl Into<Input<'a>>) -> Result<String> {
         let tools = self.base.model.lock().await.registered_tools();
         if tools.is_empty() {
-            return Err(ToolError::NoToolsRegistered.into());
+            return Err(TransformersError::Tool("No tools registered. Call register_tools() before completion_with_tools().".to_string()));
         }
 
         let mut messages = match input.into() {
@@ -407,7 +406,7 @@ impl<M: TextGenerationModel + ToolCalling + Send> TextGenerationPipeline<M> {
                 .base
                 .model_tokenizer
                 .encode(templated.as_str(), true)
-                .map_err(|e| TokenizationError::encode_failed(&templated, e.to_string()))?
+                .map_err(|e| TransformersError::Tokenization(format!("Tokenization failed on '{}...': {}", templated.chars().take(50).collect::<String>(), e)))?
                 .get_ids()
                 .to_vec();
 
@@ -471,7 +470,7 @@ impl<M: TextGenerationModel + ToolCalling + Send> TextGenerationPipeline<M> {
     > {
         let tools = self.base.model.lock().await.registered_tools();
         if tools.is_empty() {
-            return Err(ToolError::NoToolsRegistered.into());
+            return Err(TransformersError::Tool("No tools registered. Call register_tools() before completion_with_tools().".to_string()));
         }
 
         let initial_messages = match input.into() {

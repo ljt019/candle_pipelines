@@ -1,31 +1,40 @@
-use transformers::error::{DownloadError, Result, TransformersError};
+use transformers::error::{Result, TransformersError};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let fake_error = TransformersError::Download(DownloadError::Timeout {
-        repo: "fake-repo".to_string(),
-        file: "made-up-file".to_string(),
-        attempts: 67,
-    });
+    // Create a fake error to demonstrate error handling
+    let fake_error = TransformersError::Download(
+        "Download timed out for 'made-up-file' from 'fake-repo' after 67 attempt(s)".to_string(),
+    );
 
-    let result = Result::<TransformersError>::Err(fake_error);
+    let result = Result::<()>::Err(fake_error);
 
+    // Match on error variants - each maps to a different user action
     match &result {
         Ok(_) => unreachable!(),
-        Err(TransformersError::Download(DownloadError::Timeout { .. })) => {
-            println!("Download error, retrying...");
+        Err(TransformersError::Download(_)) => {
+            println!("Download error - retry with backoff");
             println!("{:?}", result);
         }
-        Err(TransformersError::Download(DownloadError::ApiInit { reason })) => {
-            println!("API init error: {}", reason);
+        Err(TransformersError::Tokenization(_)) => {
+            println!("Tokenization error - check input text");
             println!("{:?}", result);
         }
-        Err(TransformersError::Download(DownloadError::Failed { .. })) => {
-            println!("Download failed, retrying...");
+        Err(TransformersError::Tool(_)) => {
+            println!("Tool error - fix tool configuration");
             println!("{:?}", result);
         }
-        Err(e) => {
-            println!("Unknown Error, unable to retry: {}", e);
+        Err(TransformersError::Device(_)) => {
+            println!("Device error - fall back to CPU");
+            println!("{:?}", result);
+        }
+        Err(TransformersError::Unexpected(_)) => {
+            println!("Unexpected error - report bug");
+            println!("{:?}", result);
+        }
+        // Required for #[non_exhaustive] enum - future variants
+        Err(_) => {
+            println!("Unknown error variant");
             println!("{:?}", result);
         }
     };

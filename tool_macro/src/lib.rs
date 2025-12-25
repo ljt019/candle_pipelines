@@ -110,10 +110,7 @@ pub fn tool(args: TokenStream, item: TokenStream) -> TokenStream {
             Box::pin(async move {
                 let parsed: #params_struct_name = serde_json::from_value(parameters)
                     .map_err(|e| transformers::error::TransformersError::Tool(
-                        transformers::error::ToolError::InvalidParams {
-                            name: #fn_name_str.to_string(),
-                            reason: e.to_string(),
-                        }
+                        format!("Invalid parameters for '{}': {}", #fn_name_str, e)
                     ))?;
                 let #params_struct_name { #( #param_idents ),* } = parsed;
                 let result = #call_invocation;
@@ -121,11 +118,7 @@ pub fn tool(args: TokenStream, item: TokenStream) -> TokenStream {
                 match result {
                     Ok(s) => Ok(s),
                     Err(e) => Err(transformers::error::TransformersError::Tool(
-                        transformers::error::ToolError::ExecutionFailed {
-                            name: #fn_name_str.to_string(),
-                            attempts: 1,
-                            reason: e.to_string(),
-                        }
+                        format!("Tool '{}' failed: {}", #fn_name_str, e)
                     )),
                 }
             })
@@ -135,10 +128,7 @@ pub fn tool(args: TokenStream, item: TokenStream) -> TokenStream {
             Box::pin(async move {
                 let parsed: #params_struct_name = serde_json::from_value(parameters)
                     .map_err(|e| transformers::error::TransformersError::Tool(
-                        transformers::error::ToolError::InvalidParams {
-                            name: #fn_name_str.to_string(),
-                            reason: e.to_string(),
-                        }
+                        format!("Invalid parameters for '{}': {}", #fn_name_str, e)
                     ))?;
                 let #params_struct_name { #( #param_idents ),* } = parsed;
                 let result = #call_invocation;

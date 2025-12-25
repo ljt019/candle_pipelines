@@ -19,7 +19,7 @@ impl<M: FillMaskModel> FillMaskPipeline<M> {
         predictions
             .into_iter()
             .next()
-            .ok_or_else(|| TransformersError::Unexpected("Model returned no predictions".into()))
+            .ok_or_else(|| TransformersError::Unexpected("Model returned no predictions".to_string()))
     }
 
     pub fn predict_batch(&self, texts: &[&str]) -> Result<Vec<Result<FillMaskPrediction>>> {
@@ -29,7 +29,7 @@ impl<M: FillMaskModel> FillMaskPipeline<M> {
             .map(|result| {
                 result.and_then(|preds| {
                     preds.into_iter().next().ok_or_else(|| {
-                        TransformersError::Unexpected("Model returned no predictions".into())
+                        TransformersError::Unexpected("Model returned no predictions".to_string())
                     })
                 })
             })

@@ -94,7 +94,7 @@ impl Qwen3Model {
 
         let chat_template_str = config_json["chat_template"].as_str().ok_or_else(|| {
             TransformersError::Unexpected(
-                "Missing 'chat_template' in tokenizer config for Qwen3".into(),
+                "Missing 'chat_template' in tokenizer config for Qwen3".to_string(),
             )
         })?;
 
@@ -122,7 +122,7 @@ impl Qwen3Model {
         env.add_template("chat", chat_template_static)
             .map_err(|e| {
                 TransformersError::Unexpected(
-                    format!("Failed to parse chat template for Qwen3: {e}").into(),
+                    format!("Failed to parse chat template for Qwen3: {e}"),
                 )
             })?;
 
@@ -136,7 +136,7 @@ impl Qwen3Model {
             .get("qwen3.block_count")
             .ok_or_else(|| {
                 TransformersError::Unexpected(
-                    "Missing 'qwen3.block_count' in Qwen3 model metadata".into(),
+                    "Missing 'qwen3.block_count' in Qwen3 model metadata".to_string(),
                 )
             })?
             .to_u32()? as usize;
@@ -145,7 +145,7 @@ impl Qwen3Model {
             .get("qwen3.context_length")
             .ok_or_else(|| {
                 TransformersError::Unexpected(
-                    "Missing 'qwen3.context_length' in Qwen3 model metadata".into(),
+                    "Missing 'qwen3.context_length' in Qwen3 model metadata".to_string(),
                 )
             })?
             .to_u32()? as usize;
@@ -202,7 +202,7 @@ impl Qwen3Model {
             .get("qwen3.block_count")
             .ok_or_else(|| {
                 TransformersError::Unexpected(
-                    "Missing 'qwen3.block_count' in Qwen3 model metadata".into(),
+                    "Missing 'qwen3.block_count' in Qwen3 model metadata".to_string(),
                 )
             })?
             .to_u32()? as usize;
@@ -211,7 +211,7 @@ impl Qwen3Model {
             .get("qwen3.context_length")
             .ok_or_else(|| {
                 TransformersError::Unexpected(
-                    "Missing 'qwen3.context_length' in Qwen3 model metadata".into(),
+                    "Missing 'qwen3.context_length' in Qwen3 model metadata".to_string(),
                 )
             })?
             .to_u32()? as usize;
@@ -420,7 +420,7 @@ impl TextGenerationModel for Qwen3Model {
             .get_template("chat")
             .map_err(|e| {
                 TransformersError::Unexpected(
-                    format!("Failed to get chat template for Qwen3: {e}").into(),
+                    format!("Failed to get chat template for Qwen3: {e}"),
                 )
             })?
             .render(context! {
@@ -431,7 +431,7 @@ impl TextGenerationModel for Qwen3Model {
             })
             .map_err(|e| {
                 TransformersError::Unexpected(
-                    format!("Failed to render template for Qwen3 ({message_count} messages): {e}").into(),
+                    format!("Failed to render template for Qwen3 ({message_count} messages): {e}"),
                 )
             })?;
 

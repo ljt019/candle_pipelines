@@ -1,6 +1,5 @@
 use super::cache::ModelOptions;
-use crate::error::DeviceError;
-use crate::error::Result;
+use crate::error::{Result, TransformersError};
 use candle_core::{CudaDevice, Device};
 
 pub mod builder;
@@ -21,11 +20,9 @@ impl DeviceRequest {
                 CudaDevice::new_with_stream(i)
                     .map(Device::Cuda)
                     .map_err(|e| {
-                        DeviceError::CudaInitFailed {
-                            index: i,
-                            reason: e.to_string(),
-                        }
-                        .into()
+                        TransformersError::Device(
+                            format!("Failed to init CUDA device {i}: {e}. Try CPU as fallback.")
+                        )
                     })
             }
         }

@@ -1,6 +1,6 @@
 #![cfg(feature = "integration")]
 
-use transformers::error::{Result, ToolError};
+use transformers::error::{Result, TransformersError};
 use transformers::text_generation::{
     tool, tools, ErrorStrategy, Qwen3Size, TextGenerationPipelineBuilder,
 };
@@ -20,7 +20,7 @@ async fn tool_calling_basic() -> Result<()> {
         .build()
         .await?;
 
-    pipeline.register_tools(tools![get_weather]).await?;
+    pipeline.register_tools(tools![get_weather]).await;
     let out = pipeline
         .completion_with_tools("What's the weather like in Paris today?")
         .await?;
@@ -59,12 +59,7 @@ async fn tool_registration() -> Result<()> {
 
 #[tool(retries = 1)]
 fn fail_tool() -> Result<String> {
-    Err(ToolError::ExecutionFailed {
-        name: "fail_tool".into(),
-        attempts: 1,
-        reason: "boom".into(),
-    }
-    .into())
+    Err(TransformersError::Tool("fail_tool failed: boom".to_string()))
 }
 
 #[tokio::test]
@@ -77,7 +72,7 @@ async fn tool_error_fail_strategy() -> Result<()> {
         .build()
         .await?;
 
-    pipeline.register_tools(tools![fail_tool]).await?;
+    pipeline.register_tools(tools![fail_tool]).await;
     let res = pipeline.completion_with_tools("call fail_tool").await;
     assert!(res.is_err());
     Ok(())

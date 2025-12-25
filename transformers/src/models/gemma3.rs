@@ -97,7 +97,7 @@ impl Gemma3Model {
             .and_then(|v| v.to_u32().ok())
             .ok_or_else(|| {
                 TransformersError::Unexpected(
-                    "Missing 'gemma3.block_count' in Gemma3 model metadata".into(),
+                    "Missing 'gemma3.block_count' in Gemma3 model metadata".to_string(),
                 )
             })? as usize;
 
@@ -141,7 +141,7 @@ impl Gemma3Model {
 
         let chat_template_str = config_json["chat_template"].as_str().ok_or_else(|| {
             TransformersError::Unexpected(
-                "Missing 'chat_template' in tokenizer config for Gemma3".into(),
+                "Missing 'chat_template' in tokenizer config for Gemma3".to_string(),
             )
         })?;
 
@@ -154,7 +154,7 @@ impl Gemma3Model {
         env.add_template_owned("chat", chat_template_str.to_string())
             .map_err(|e| {
                 TransformersError::Unexpected(
-                    format!("Failed to parse chat template for Gemma3: {e}").into(),
+                    format!("Failed to parse chat template for Gemma3: {e}"),
                 )
             })?;
 
@@ -172,7 +172,7 @@ impl Gemma3Model {
     fn ensure_eos_tokens(config: &GenerationConfig) -> Result<()> {
         if config.eos_token_ids.is_empty() {
             return Err(TransformersError::Unexpected(
-                "Missing 'eos_token_ids' in generation config for Gemma3".into(),
+                "Missing 'eos_token_ids' in generation config for Gemma3".to_string(),
             ));
         }
 
@@ -314,7 +314,7 @@ impl TextGenerationModel for Gemma3Model {
             .get_template("chat")
             .map_err(|e| {
                 TransformersError::Unexpected(
-                    format!("Failed to get chat template for Gemma3: {e}").into(),
+                    format!("Failed to get chat template for Gemma3: {e}"),
                 )
             })?
             .render(context! {
@@ -323,7 +323,7 @@ impl TextGenerationModel for Gemma3Model {
             })
             .map_err(|e| {
                 TransformersError::Unexpected(
-                    format!("Failed to render template for Gemma3 ({message_count} messages): {e}").into(),
+                    format!("Failed to render template for Gemma3 ({message_count} messages): {e}"),
                 )
             })?;
         Ok(rendered)

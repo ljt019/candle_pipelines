@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use tokio::time::Duration;
 
-use crate::error::{DownloadError, Result, TokenizationError, TransformersError};
+use crate::error::{Result, TransformersError};
 
 #[derive(Clone)]
 pub struct GenerationConfig {
@@ -34,8 +34,8 @@ impl HfLoader {
         let hf_api = hf_hub::api::tokio::ApiBuilder::new()
             .with_chunk_size(None)
             .build()
-            .map_err(|e| DownloadError::ApiInit {
-                reason: e.to_string(),
+            .map_err(|e| {
+                TransformersError::Download(format!("Failed to initialize HuggingFace API: {e}"))
             })?;
         let hf_repo = self.repo.clone();
         let hf_api = hf_api.model(hf_repo);
@@ -54,22 +54,18 @@ impl HfLoader {
                         tokio::time::sleep(wait_time).await;
                         continue;
                     }
-                    return Err(DownloadError::Failed {
-                        repo: self.repo.clone(),
-                        file: self.filename.clone(),
-                        reason: error_msg,
-                    }
-                    .into());
+                    return Err(TransformersError::Download(format!(
+                        "Failed to download '{}' from '{}': {}",
+                        self.filename, self.repo, error_msg
+                    )));
                 }
             }
         }
 
-        Err(DownloadError::Timeout {
-            repo: self.repo.clone(),
-            file: self.filename.clone(),
-            attempts,
-        }
-        .into())
+        Err(TransformersError::Download(format!(
+            "Download timed out for '{}' from '{}' after {} attempt(s)",
+            self.filename, self.repo, attempts
+        )))
     }
 }
 
@@ -92,10 +88,10 @@ impl TokenizerLoader {
         let path_str = tokenizer_file_path.display().to_string();
 
         let tokenizer = tokenizers::Tokenizer::from_file(&tokenizer_file_path).map_err(|e| {
-            TokenizationError::LoadFailed {
-                path: path_str,
-                reason: e.to_string(),
-            }
+            TransformersError::Tokenization(format!(
+                "Failed to load tokenizer from '{}': {}",
+                path_str, e
+            ))
         })?;
 
         Ok(tokenizer)
@@ -138,9 +134,9 @@ impl GenerationConfigLoader {
         let eos_token_ids = match raw.eos_token_ids {
             Some(serde_json::Value::Number(n)) => {
                 vec![n.as_u64().ok_or_else(|| {
-                    TransformersError::Unexpected(
-                        format!("Invalid eos_token_id: expected unsigned integer, got {n}").into(),
-                    )
+                    TransformersError::Unexpected(format!(
+                        "Invalid eos_token_id: expected unsigned integer, got {n}"
+                    ))
                 })?]
             }
             Some(serde_json::Value::Array(arr)) => arr
@@ -148,9 +144,9 @@ impl GenerationConfigLoader {
                 .enumerate()
                 .map(|(i, v)| {
                     v.as_u64().ok_or_else(|| {
-                        TransformersError::Unexpected(
-                            format!("Invalid eos_token_ids[{i}]: expected unsigned integer, got {v}").into(),
-                        )
+                        TransformersError::Unexpected(format!(
+                            "Invalid eos_token_ids[{i}]: expected unsigned integer, got {v}"
+                        ))
                     })
                 })
                 .collect::<Result<Vec<_>>>()?,

@@ -1,4 +1,4 @@
-use crate::error::{Result, ToolError};
+use crate::error::Result;
 use futures::future::BoxFuture;
 use std::sync::Arc;
 
@@ -83,33 +83,29 @@ impl Tool {
     }
 
     fn validate(&self, params: &serde_json::Value) -> Result<()> {
-        let schema = serde_json::to_value(&self.schema).map_err(|e| ToolError::SchemaError {
-            name: self.name.clone(),
-            reason: format!("schema serialization failed: {e}"),
+        let schema = serde_json::to_value(&self.schema).map_err(|e| {
+            crate::error::TransformersError::Tool(
+                format!("Schema error for '{}': schema serialization failed: {}", self.name, e)
+            )
         })?;
         let compiled = jsonschema::JSONSchema::options()
             .with_draft(jsonschema::Draft::Draft7)
             .compile(&schema)
-            .map_err(|e| ToolError::SchemaError {
-                name: self.name.clone(),
-                reason: format!("invalid schema: {e}"),
+            .map_err(|e| {
+                crate::error::TransformersError::Tool(
+                    format!("Schema error for '{}': invalid schema: {}", self.name, e)
+                )
             })?;
 
-        let validation_result = compiled.validate(params).map_err(|errors| {
-            errors
-                .map(|error| error.to_string())
-                .collect::<Vec<String>>()
-        });
-
+        let validation_result = compiled.validate(params);
         match validation_result {
             Ok(_) => Ok(()),
-            Err(messages) => {
+            Err(errors) => {
+                let messages: Vec<String> = errors.map(|e| e.to_string()).collect();
                 let error_msg = messages.join(", ");
-                Err(ToolError::InvalidParams {
-                    name: self.name.clone(),
-                    reason: error_msg,
-                }
-                .into())
+                Err(crate::error::TransformersError::Tool(
+                    format!("Invalid parameters for '{}': {}", self.name, error_msg)
+                ))
             }
         }
     }

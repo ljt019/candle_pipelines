@@ -9,7 +9,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use tokenizers::Tokenizer;
 
-use crate::error::{Result, TokenizationError, TransformersError};
+use crate::error::{Result, TransformersError};
 use crate::pipelines::fill_mask::pipeline::FillMaskPrediction;
 use crate::pipelines::sentiment::pipeline::SentimentResult;
 use crate::pipelines::zero_shot::model::LabelScores;
@@ -62,7 +62,7 @@ impl FillMaskModernBertModel {
     pub fn predict(&self, tokenizer: &Tokenizer, text: &str) -> Result<String> {
         let encoding = tokenizer
             .encode(text, true)
-            .map_err(|e| TokenizationError::encode_failed(text, e.to_string()))?;
+            .map_err(|e| TransformersError::Tokenization(format!("Tokenization failed on '{}': {}", &text.chars().take(50).collect::<String>(), e)))?;
         let mask_id = tokenizer.token_to_id("[MASK]").unwrap_or(103);
         let mask_index = encoding
             .get_ids()
@@ -71,7 +71,7 @@ impl FillMaskModernBertModel {
             .ok_or_else(|| {
                 let preview: String = text.chars().take(50).collect();
                 TransformersError::Unexpected(
-                    format!("No [MASK] token in input '{preview}'. Fill-mask requires exactly one [MASK].").into(),
+                    format!("No [MASK] token in input '{preview}'. Fill-mask requires exactly one [MASK]."),
                 )
             })?;
 
@@ -124,7 +124,7 @@ impl crate::pipelines::fill_mask::model::FillMaskModel for FillMaskModernBertMod
 
         let encoding = tokenizer
             .encode(text, true)
-            .map_err(|e| TokenizationError::encode_failed(text, e.to_string()))?;
+            .map_err(|e| TransformersError::Tokenization(format!("Tokenization failed on '{}': {}", &text.chars().take(50).collect::<String>(), e)))?;
         let mask_id = tokenizer.token_to_id("[MASK]").unwrap_or(103);
         let mask_index = encoding
             .get_ids()
@@ -133,7 +133,7 @@ impl crate::pipelines::fill_mask::model::FillMaskModel for FillMaskModernBertMod
             .ok_or_else(|| {
                 let preview: String = text.chars().take(50).collect();
                 TransformersError::Unexpected(
-                    format!("No [MASK] token in input '{preview}'. Fill-mask requires exactly one [MASK].").into(),
+                    format!("No [MASK] token in input '{preview}'. Fill-mask requires exactly one [MASK]."),
                 )
             })?;
 
@@ -208,7 +208,7 @@ impl crate::pipelines::fill_mask::model::FillMaskModel for FillMaskModernBertMod
                         None => {
                             let preview: String = text.chars().take(50).collect();
                             error_results[i] = Some(TransformersError::Unexpected(
-                                format!("No [MASK] token in input '{preview}'. Fill-mask requires exactly one [MASK].").into(),
+                                format!("No [MASK] token in input '{preview}'. Fill-mask requires exactly one [MASK]."),
                             ));
                             mask_indices.push(0);
                             encodings.push(None);
@@ -217,7 +217,7 @@ impl crate::pipelines::fill_mask::model::FillMaskModel for FillMaskModernBertMod
                 }
                 Err(e) => {
                     error_results[i] =
-                        Some(TokenizationError::encode_failed(text, e.to_string()).into());
+                        Some(TransformersError::Tokenization(format!("Tokenization failed on '{}': {}", &text.chars().take(50).collect::<String>(), e)));
                     mask_indices.push(0);
                     encodings.push(None);
                 }
@@ -235,7 +235,7 @@ impl crate::pipelines::fill_mask::model::FillMaskModel for FillMaskModernBertMod
                 .into_iter()
                 .map(|e| {
                     Err(e.unwrap_or_else(|| {
-                        TransformersError::Unexpected("Model returned no predictions".into())
+                        TransformersError::Unexpected("Model returned no predictions".to_string())
                     }))
                 })
                 .collect());
@@ -394,7 +394,7 @@ impl ZeroShotModernBertModel {
         let available_labels: Vec<String> = self.label2id.keys().cloned().collect();
         let entailment_id = *self.label2id.get("entailment").ok_or_else(|| {
             TransformersError::Unexpected(
-                format!("Missing 'entailment' in label2id mapping. Available: {}", available_labels.join(", ")).into(),
+                format!("Missing 'entailment' in label2id mapping. Available: {}", available_labels.join(", ")),
             )
         })?;
 
@@ -403,7 +403,7 @@ impl ZeroShotModernBertModel {
             let hypothesis = format!("This example is {label}.");
             let encoding = tokenizer
                 .encode((text, hypothesis.as_str()), true)
-                .map_err(|e| TokenizationError::encode_failed(text, e.to_string()))?;
+                .map_err(|e| TransformersError::Tokenization(format!("Tokenization failed on '{}': {}", &text.chars().take(50).collect::<String>(), e)))?;
             encodings.push(encoding);
         }
 
@@ -470,7 +470,7 @@ impl ZeroShotModernBertModel {
         let available_labels: Vec<String> = self.label2id.keys().cloned().collect();
         let entailment_id = *self.label2id.get("entailment").ok_or_else(|| {
             TransformersError::Unexpected(
-                format!("Missing 'entailment' in label2id mapping. Available: {}", available_labels.join(", ")).into(),
+                format!("Missing 'entailment' in label2id mapping. Available: {}", available_labels.join(", ")),
             )
         })?;
 
@@ -499,7 +499,7 @@ impl ZeroShotModernBertModel {
                     Ok(encoding) => all_encodings.push(Some(encoding)),
                     Err(e) => {
                         error_results[text_idx] =
-                            Some(TokenizationError::encode_failed(text, e.to_string()).into());
+                            Some(TransformersError::Tokenization(format!("Tokenization failed on '{}': {}", &text.chars().take(50).collect::<String>(), e)));
                         text_has_error = true;
                         all_encodings.push(None);
                     }
@@ -518,7 +518,7 @@ impl ZeroShotModernBertModel {
                 .into_iter()
                 .map(|e| {
                     Err(e.unwrap_or_else(|| {
-                        TransformersError::Unexpected("Model returned no predictions".into())
+                        TransformersError::Unexpected("Model returned no predictions".to_string())
                     }))
                 })
                 .collect());
@@ -702,7 +702,7 @@ impl SentimentModernBertModel {
     pub fn predict(&self, tokenizer: &Tokenizer, text: &str) -> Result<String> {
         let tokens = tokenizer
             .encode(text, true)
-            .map_err(|e| TokenizationError::encode_failed(text, e.to_string()))?;
+            .map_err(|e| TransformersError::Tokenization(format!("Tokenization failed on '{}': {}", &text.chars().take(50).collect::<String>(), e)))?;
 
         let input_ids = Tensor::new(tokens.get_ids(), &self.device)?.unsqueeze(0)?;
         let attention_mask =
@@ -717,7 +717,7 @@ impl SentimentModernBertModel {
             .get(&pred_id.to_string())
             .ok_or_else(|| {
                 TransformersError::Unexpected(
-                    format!("Predicted label ID {} not in id2label. Available: {}", pred_id, available_labels.join(", ")).into(),
+                    format!("Predicted label ID {} not in id2label. Available: {}", pred_id, available_labels.join(", ")),
                 )
             })?
             .clone();
@@ -748,7 +748,7 @@ impl crate::pipelines::sentiment::model::SentimentAnalysisModel for SentimentMod
     fn predict_with_score(&self, tokenizer: &Tokenizer, text: &str) -> Result<SentimentResult> {
         let tokens = tokenizer
             .encode(text, true)
-            .map_err(|e| TokenizationError::encode_failed(text, e.to_string()))?;
+            .map_err(|e| TransformersError::Tokenization(format!("Tokenization failed on '{}': {}", &text.chars().take(50).collect::<String>(), e)))?;
 
         let input_ids = Tensor::new(tokens.get_ids(), &self.device)?.unsqueeze(0)?;
         let attention_mask =
@@ -767,7 +767,7 @@ impl crate::pipelines::sentiment::model::SentimentAnalysisModel for SentimentMod
             .get(&pred_id.to_string())
             .ok_or_else(|| {
                 TransformersError::Unexpected(
-                    format!("Predicted label ID {} not in id2label. Available: {}", pred_id, available_labels.join(", ")).into(),
+                    format!("Predicted label ID {} not in id2label. Available: {}", pred_id, available_labels.join(", ")),
                 )
             })?
             .clone();
@@ -800,7 +800,7 @@ impl crate::pipelines::sentiment::model::SentimentAnalysisModel for SentimentMod
                 Ok(encoding) => encodings.push(Some(encoding)),
                 Err(e) => {
                     error_results[i] =
-                        Some(TokenizationError::encode_failed(text, e.to_string()).into());
+                        Some(TransformersError::Tokenization(format!("Tokenization failed on '{}': {}", &text.chars().take(50).collect::<String>(), e)));
                     encodings.push(None);
                 }
             }
@@ -817,7 +817,7 @@ impl crate::pipelines::sentiment::model::SentimentAnalysisModel for SentimentMod
                 .into_iter()
                 .map(|e| {
                     Err(e.unwrap_or_else(|| {
-                        TransformersError::Unexpected("Model returned no predictions".into())
+                        TransformersError::Unexpected("Model returned no predictions".to_string())
                     }))
                 })
                 .collect());
@@ -879,7 +879,7 @@ impl crate::pipelines::sentiment::model::SentimentAnalysisModel for SentimentMod
                 }
                 None => {
                     results[orig_idx] = Err(TransformersError::Unexpected(
-                        format!("Predicted label ID {} not in id2label. Available: {}", pred_id, available_labels.join(", ")).into(),
+                        format!("Predicted label ID {} not in id2label. Available: {}", pred_id, available_labels.join(", ")),
                     ));
                 }
             }
@@ -903,11 +903,9 @@ fn load_tokenizer(repo_id: &str) -> Result<Tokenizer> {
     let tokenizer_path = repo.get("tokenizer.json")?;
     let path_str = tokenizer_path.display().to_string();
     Tokenizer::from_file(&tokenizer_path).map_err(|e| {
-        TokenizationError::LoadFailed {
-            path: path_str,
-            reason: e.to_string(),
-        }
-        .into()
+        TransformersError::Tokenization(
+            format!("Failed to load tokenizer from '{}': {}", path_str, e)
+        )
     })
 }
 
