@@ -265,8 +265,7 @@ impl<M: TextGenerationModel + Send + Sync> TextGenerationPipeline<M> {
 
     /// Returns whether tools are currently enabled.
     pub fn tools_enabled(&self) -> bool {
-        self.tools_enabled
-            .load(std::sync::atomic::Ordering::SeqCst)
+        self.tools_enabled.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// Returns tools to pass to model (empty if disabled).
@@ -345,10 +344,10 @@ impl<M: TextGenerationModel + Send + Sync> TextGenerationPipeline<M> {
     ) -> Result<(String, GenerationStats)> {
         self.base.context.lock().await.reset();
 
-        let templated_prompt = self
-            .base
-            .model
-            .apply_chat_template(&[super::message::Message::user(prompt)], &self.active_tools())?;
+        let templated_prompt = self.base.model.apply_chat_template(
+            &[super::message::Message::user(prompt)],
+            &self.active_tools(),
+        )?;
 
         let prompt_tokens = self
             .base
@@ -384,7 +383,10 @@ impl<M: TextGenerationModel + Send + Sync> TextGenerationPipeline<M> {
         &self,
         messages: &[super::message::Message],
     ) -> Result<(String, GenerationStats)> {
-        let templated_prompt = self.base.model.apply_chat_template(messages, &self.active_tools())?;
+        let templated_prompt = self
+            .base
+            .model
+            .apply_chat_template(messages, &self.active_tools())?;
 
         let new_tokens = self
             .base

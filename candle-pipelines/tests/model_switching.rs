@@ -1,7 +1,9 @@
 //! Integration test for model switching.
 //! Run with: cargo test --features cuda model_switching -- --nocapture
 
+#[cfg(feature = "cuda")]
 use candle_pipelines::error::Result;
+#[cfg(feature = "cuda")]
 use candle_pipelines::text_generation::{Gemma3Size, Qwen3Size, TextGenerationPipelineBuilder};
 
 #[tokio::test]

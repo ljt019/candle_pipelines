@@ -13,7 +13,7 @@ pub enum ErrorStrategy {
 }
 
 /// Marker trait for models that support tool calling.
-/// 
+///
 /// Models implementing this trait can parse `<tool_call>` tags and generate
 /// tool invocations. Tool storage and management is handled by the pipeline.
 pub trait ToolCalling {}
