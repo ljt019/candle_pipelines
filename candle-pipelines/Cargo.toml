@@ -37,3 +37,4 @@ cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
 metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
 
 [dev-dependencies]
+reqwest = { version = "0.12", features = ["rustls-tls"] }
