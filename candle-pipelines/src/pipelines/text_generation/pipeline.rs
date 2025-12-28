@@ -819,14 +819,6 @@ impl TextGenerationPipeline<Qwen3> {
         }
     }
 
-    /// Generate completions for multiple prompts sequentially.
-    pub async fn completion_batch(&self, prompts: &[&str]) -> Result<Vec<Result<String>>> {
-        let mut outputs = Vec::with_capacity(prompts.len());
-        for prompt in prompts {
-            outputs.push(self.completion(*prompt).await);
-        }
-        Ok(outputs)
-    }
 }
 
 impl TextGenerationPipeline<Gemma3> {
@@ -853,15 +845,6 @@ impl TextGenerationPipeline<Gemma3> {
         >,
     > {
         self.completion_stream_basic(input).await
-    }
-
-    /// Generate completions for multiple prompts sequentially.
-    pub async fn completion_batch(&self, prompts: &[&str]) -> Result<Vec<Result<String>>> {
-        let mut outputs = Vec::with_capacity(prompts.len());
-        for prompt in prompts {
-            outputs.push(self.completion(*prompt).await);
-        }
-        Ok(outputs)
     }
 }
 
