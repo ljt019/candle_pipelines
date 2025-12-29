@@ -13,7 +13,6 @@ pub struct BasePipeline<M: TextGenerationModel> {
     pub gen_params: Arc<Mutex<GenerationParams>>,
     pub device: candle_core::Device,
     pub last_processed_tokens: Arc<Mutex<Vec<u32>>>,
-    pub last_generation_stats: Arc<Mutex<Option<GenerationStats>>>,
 }
 
 impl<M: TextGenerationModel + Sync> BasePipeline<M> {
@@ -32,12 +31,7 @@ impl<M: TextGenerationModel + Sync> BasePipeline<M> {
             gen_params: Arc::new(Mutex::new(gen_params)),
             device,
             last_processed_tokens: Arc::new(Mutex::new(Vec::new())),
-            last_generation_stats: Arc::new(Mutex::new(None)),
         })
-    }
-
-    pub fn last_generation_stats(&self) -> Option<GenerationStats> {
-        self.last_generation_stats.lock().unwrap().clone()
     }
 
     pub fn set_generation_params(&self, params: GenerationParams) {
@@ -46,11 +40,6 @@ impl<M: TextGenerationModel + Sync> BasePipeline<M> {
 
     pub fn can_reuse_cache(&self, new_tokens: &[u32]) -> bool {
         new_tokens.starts_with(&self.last_processed_tokens.lock().unwrap())
-    }
-
-    pub fn completion_from_tokens(&self, input_tokens: &[u32]) -> Result<String> {
-        let (output, _) = self.completion_from_tokens_with_stats(input_tokens)?;
-        Ok(output)
     }
 
     pub fn completion_from_tokens_with_stats(
@@ -130,10 +119,6 @@ impl<M: TextGenerationModel + Sync> BasePipeline<M> {
             .expect("token decode failed");
 
         stats.finalize();
-        self.last_generation_stats
-            .lock()
-            .unwrap()
-            .replace(stats.clone());
 
         Ok((generated_tokens_str, stats))
     }
@@ -161,7 +146,6 @@ impl<M: TextGenerationModel + Sync> BasePipeline<M> {
             Arc::clone(&self.cache),
             Arc::clone(&self.gen_params),
             Arc::clone(&stats),
-            Arc::clone(&self.last_generation_stats),
         );
 
         (stats, iterator)
@@ -189,11 +173,9 @@ pub struct TokenIterator<M: TextGenerationModel> {
     model: Arc<M>,
     cache: Arc<Mutex<M::Cache>>,
     stats: Arc<Mutex<GenerationStats>>,
-    last_stats: Arc<Mutex<Option<GenerationStats>>>,
 }
 
 impl<M: TextGenerationModel + Send + Sync> TokenIterator<M> {
-    #[allow(clippy::too_many_arguments)]
     fn new(
         input_tokens: Vec<u32>,
         device: candle_core::Device,
@@ -202,7 +184,6 @@ impl<M: TextGenerationModel + Send + Sync> TokenIterator<M> {
         cache: Arc<Mutex<M::Cache>>,
         gen_params: Arc<Mutex<GenerationParams>>,
         stats: Arc<Mutex<GenerationStats>>,
-        last_stats: Arc<Mutex<Option<GenerationStats>>>,
     ) -> Self {
         let params = gen_params.lock().unwrap().clone();
         let logits_processor = initialize_logits_processor(&params, params.seed);
@@ -223,7 +204,6 @@ impl<M: TextGenerationModel + Send + Sync> TokenIterator<M> {
             model,
             cache,
             stats,
-            last_stats,
         }
     }
 
@@ -315,9 +295,7 @@ impl<M: TextGenerationModel + Send + Sync> TokenIterator<M> {
     fn finish(&mut self) {
         if !self.finished {
             self.finished = true;
-            let mut stats_guard = self.stats.lock().unwrap();
-            stats_guard.finalize();
-            self.last_stats.lock().unwrap().replace(stats_guard.clone());
+            self.stats.lock().unwrap().finalize();
         }
     }
 }

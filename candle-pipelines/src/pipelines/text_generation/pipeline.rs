@@ -284,11 +284,6 @@ impl<M: TextGenerationModel + Send + Sync> TextGenerationPipeline<M> {
         &self.tool_error_strategy
     }
 
-    /// Returns stats from the last generation (tokens, timing).
-    pub fn last_generation_stats(&self) -> Option<GenerationStats> {
-        self.base.last_generation_stats()
-    }
-
     /// Update generation parameters (temperature, top_p, etc.).
     pub fn set_generation_params(&self, params: GenerationParams) {
         self.base.set_generation_params(params);
@@ -565,10 +560,12 @@ impl<M: TextGenerationModel + Send + Sync> TextGenerationPipeline<M> {
     }
 
     /// Internal: tool-calling completion flow
-    async fn completion_with_tools_internal(&self, messages: &[Message]) -> Result<String> {
+    async fn completion_with_tools_internal(&self, messages: &[Message]) -> Result<Output> {
         let tools = self.registered_tools();
         let mut messages = messages.to_vec();
         let mut full_response = String::new();
+        let mut combined_stats = GenerationStats::new();
+        let mut is_first_call = true;
 
         loop {
             let templated = self.base.model.apply_chat_template(&messages, &tools)?;
@@ -589,24 +586,35 @@ impl<M: TextGenerationModel + Send + Sync> TextGenerationPipeline<M> {
             let max_seq_len = self.base.model.get_max_seq_len();
             let pending_tokens = new_tokens.len();
 
-            let response = if self.base.cache.lock().unwrap().current_seq_len() + pending_tokens
+            let (response, stats) = if self.base.cache.lock().unwrap().current_seq_len()
+                + pending_tokens
                 > max_seq_len
             {
-                    self.base.cache.lock().unwrap().reset();
-                    self.base.last_processed_tokens.lock().unwrap().clear();
-                    self.base.completion_from_tokens(&new_tokens)?
-                } else if self.base.can_reuse_cache(&new_tokens) {
-                    let prefix_len = self.base.last_processed_tokens.lock().unwrap().len();
-                    let new_portion = &new_tokens[prefix_len..];
-                    let res = self.base.completion_from_tokens(new_portion)?;
-                    *self.base.last_processed_tokens.lock().unwrap() = new_tokens;
-                    res
-                } else {
-                    self.base.cache.lock().unwrap().reset();
-                    let res = self.base.completion_from_tokens(&new_tokens)?;
-                    *self.base.last_processed_tokens.lock().unwrap() = new_tokens;
-                    res
-                };
+                self.base.cache.lock().unwrap().reset();
+                self.base.last_processed_tokens.lock().unwrap().clear();
+                self.base.completion_from_tokens_with_stats(&new_tokens)?
+            } else if self.base.can_reuse_cache(&new_tokens) {
+                let prefix_len = self.base.last_processed_tokens.lock().unwrap().len();
+                let new_portion = &new_tokens[prefix_len..];
+                let res = self
+                    .base
+                    .completion_from_tokens_with_prompt_stats(new_portion, new_tokens.len())?;
+                *self.base.last_processed_tokens.lock().unwrap() = new_tokens;
+                res
+            } else {
+                self.base.cache.lock().unwrap().reset();
+                let res = self.base.completion_from_tokens_with_stats(&new_tokens)?;
+                *self.base.last_processed_tokens.lock().unwrap() = new_tokens;
+                res
+            };
+
+            // Accumulate stats from this generation
+            if is_first_call {
+                combined_stats = stats;
+                is_first_call = false;
+            } else {
+                combined_stats.accumulate(&stats);
+            }
 
             match Self::extract_tool_calls(&response) {
                 Ok(tool_calls) if !tool_calls.is_empty() => {
@@ -630,13 +638,19 @@ impl<M: TextGenerationModel + Send + Sync> TextGenerationPipeline<M> {
                     continue;
                 }
                 _ => {
-                    if !full_response.is_empty() {
+                    let text = if !full_response.is_empty() {
                         full_response.push('\n');
                         full_response.push_str(&response);
-                        return Ok(full_response);
+                        full_response
                     } else {
-                        return Ok(response);
-                    }
+                        response
+                    };
+                    // Finalize combined stats with total time
+                    combined_stats.finalize();
+                    return Ok(Output {
+                        text,
+                        stats: combined_stats,
+                    });
                 }
             }
         }
@@ -683,11 +697,7 @@ impl TextGenerationPipeline<Qwen3> {
                 Input::Prompt(p) => vec![Message::user(p)],
                 Input::Messages(m) => m.to_vec(),
             };
-            let text = futures::executor::block_on(self.completion_with_tools_internal(&messages))?;
-            // TODO: track stats through tool-calling path
-            let mut stats = GenerationStats::new();
-            stats.finalize();
-            Ok(Output { text, stats })
+            futures::executor::block_on(self.completion_with_tools_internal(&messages))
         } else {
             self.run_basic(input)
         }
