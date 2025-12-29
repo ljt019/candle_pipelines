@@ -34,9 +34,9 @@
 //!
 //! let output = pipeline.run(reviews)?;
 //!
-//! for (text, pred) in reviews.iter().zip(output.predictions) {
-//!     let p = pred?;
-//!     println!("{}: {} ({:.2})", text, p.label, p.score);
+//! for r in output.results {
+//!     let p = r.prediction?;
+//!     println!("{}: {} ({:.2})", r.text, p.label, p.score);
 //! }
 //! # Ok(())
 //! # }
@@ -61,7 +61,10 @@ pub(crate) mod pipeline;
 pub use crate::models::ModernBertSize;
 pub use crate::pipelines::stats::PipelineStats;
 pub use builder::SentimentAnalysisPipelineBuilder;
-pub use pipeline::{BatchOutput, Output, Prediction, SentimentAnalysisPipeline, SentimentInput};
+pub use pipeline::{BatchOutput, BatchResult, Output, Prediction, SentimentAnalysisPipeline};
+
+#[doc(hidden)]
+pub use pipeline::SentimentInput;
 
 /// Only for generic annotations. Use [`SentimentAnalysisPipelineBuilder::modernbert`].
 pub type SentimentModernBert = crate::models::modernbert::SentimentModernBertModel;

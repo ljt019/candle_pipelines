@@ -61,9 +61,9 @@
 //!
 //! let output = pipeline.run(texts, labels)?;
 //!
-//! for preds in output.predictions {
-//!     let top = &preds?[0];
-//!     println!("{}: {:.2}", top.label, top.score);
+//! for r in output.results {
+//!     let top = &r.predictions?[0];
+//!     println!("{} → {}: {:.2}", r.text, top.label, top.score);
 //! }
 //! # Ok(())
 //! # }
@@ -88,7 +88,10 @@ pub(crate) mod pipeline;
 pub use crate::models::ModernBertSize;
 pub use crate::pipelines::stats::PipelineStats;
 pub use builder::ZeroShotClassificationPipelineBuilder;
-pub use pipeline::{BatchOutput, Output, Prediction, ZeroShotClassificationPipeline, ZeroShotInput};
+pub use pipeline::{BatchOutput, BatchResult, Output, Prediction, ZeroShotClassificationPipeline};
+
+#[doc(hidden)]
+pub use pipeline::ZeroShotInput;
 
 /// Only for generic annotations. Use [`ZeroShotClassificationPipelineBuilder::modernbert`].
 pub type ZeroShotModernBert = crate::models::modernbert::ZeroShotModernBertModel;

@@ -44,7 +44,7 @@ fn main() -> Result<()> {
         println!("  - {}: {:.4}", pred.label, pred.score);
     }
 
-    // Batch inference
+    // Batch inference - results include input text!
     println!("\n=== Batch Inference ===");
     let texts = &[
         "The team won the championship!",
@@ -55,9 +55,9 @@ fn main() -> Result<()> {
 
     let output = pipeline.run(texts, labels)?;
 
-    for (text, preds) in texts.iter().zip(output.predictions) {
-        let top = &preds?[0];
-        println!("{} → {} ({:.2})", text, top.label, top.score);
+    for r in output.results {
+        let top = &r.predictions?[0];
+        println!("{} → {} ({:.2})", r.text, top.label, top.score);
     }
 
     Ok(())

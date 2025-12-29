@@ -24,7 +24,7 @@ fn main() -> Result<()> {
         output.stats.total_time.as_secs_f64() * 1000.0
     );
 
-    // Batch inference
+    // Batch inference - results include input text!
     println!("\n=== Batch Inference ===");
     let texts = &[
         "This product is amazing!",
@@ -34,9 +34,9 @@ fn main() -> Result<()> {
 
     let output = pipeline.run(texts)?;
 
-    for (text, pred) in texts.iter().zip(output.predictions) {
-        let p = pred?;
-        println!("{} → {} ({:.2})", text, p.label, p.score);
+    for r in output.results {
+        let p = r.prediction?;
+        println!("{} → {} ({:.2})", r.text, p.label, p.score);
     }
 
     Ok(())

@@ -42,7 +42,7 @@ pub trait TextGeneration: Send + Sync {
     /// Generate a complete response from messages synchronously.
     fn run(&self, messages: &[Message]) -> Result<Output>;
 
-    /// Stream tokens as they're generated (sync iterator).
+    /// Iterate over tokens as they're generated.
     fn run_iter<'a>(&'a self, messages: &'a [Message])
         -> Result<BoxedIterator<'a, Result<String>>>;
 
@@ -401,7 +401,7 @@ impl<M: TextGenerationModel + Send + Sync> TextGenerationPipeline<M> {
         &'a self,
         input: impl Into<Input<'a>>,
     ) -> Result<
-        crate::pipelines::text_generation::streaming::CompletionStream<
+        crate::pipelines::text_generation::streaming::Tokens<
             impl Iterator<Item = Result<String>> + Send + 'a,
         >,
     >
@@ -464,7 +464,7 @@ impl<M: TextGenerationModel + Send + Sync> TextGenerationPipeline<M> {
         &'a self,
         tokens: Vec<u32>,
         prompt_token_count: usize,
-    ) -> crate::pipelines::text_generation::streaming::CompletionStream<
+    ) -> crate::pipelines::text_generation::streaming::Tokens<
         impl Iterator<Item = Result<String>> + Send + 'a,
     >
     where
@@ -473,7 +473,7 @@ impl<M: TextGenerationModel + Send + Sync> TextGenerationPipeline<M> {
         let (stats, inner) = self
             .base
             .token_iterator_with_prompt_count(tokens, Some(prompt_token_count));
-        crate::pipelines::text_generation::streaming::CompletionStream::new(inner, stats)
+        crate::pipelines::text_generation::streaming::Tokens::new(inner, stats)
     }
 }
 
@@ -703,14 +703,14 @@ impl TextGenerationPipeline<Qwen3> {
         }
     }
 
-    /// Stream tokens as a sync iterator.
+    /// Iterate over tokens as they're generated.
     ///
-    /// Call `.stats()` on the returned stream to get generation statistics.
+    /// Call `.stats()` after iteration to get generation statistics.
     pub fn run_iter<'a>(
         &'a self,
         input: impl Into<Input<'a>>,
     ) -> Result<
-        crate::pipelines::text_generation::streaming::CompletionStream<
+        crate::pipelines::text_generation::streaming::Tokens<
             impl Iterator<Item = Result<String>> + Send + 'a,
         >,
     > {
@@ -726,14 +726,14 @@ impl TextGenerationPipeline<Gemma3> {
         self.run_basic(input)
     }
 
-    /// Stream tokens as a sync iterator.
+    /// Iterate over tokens as they're generated.
     ///
-    /// Call `.stats()` on the returned stream to get generation statistics.
+    /// Call `.stats()` after iteration to get generation statistics.
     pub fn run_iter<'a>(
         &'a self,
         input: impl Into<Input<'a>>,
     ) -> Result<
-        crate::pipelines::text_generation::streaming::CompletionStream<
+        crate::pipelines::text_generation::streaming::Tokens<
             impl Iterator<Item = Result<String>> + Send + 'a,
         >,
     > {

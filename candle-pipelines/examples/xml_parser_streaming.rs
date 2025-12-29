@@ -35,15 +35,15 @@ fn main() -> Result<()> {
         .register_tag("tool_call")
         .build();
 
-    // Stream completion
-    let stream = pipeline.run_iter("What's the weather like in Tokyo?")?;
+    // Get token iterator
+    let tokens = pipeline.run_iter("What's the weather like in Tokyo?")?;
 
-    // Wrap iterator with XML parser
-    let event_iter = parser.wrap_iterator(stream);
+    // Wrap with XML parser
+    let events = parser.wrap_iterator(tokens);
 
-    println!("\n--- Streaming Events ---");
+    println!("\n--- Events ---");
 
-    for event in event_iter {
+    for event in events {
         match event.tag() {
             Some("think") => match event.part() {
                 TagParts::Start => println!("[THINKING]"),

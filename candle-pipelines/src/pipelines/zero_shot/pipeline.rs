@@ -5,36 +5,45 @@ use tokenizers::Tokenizer;
 
 // ============ Output types ============
 
-/// A single classification result with label and confidence score.
+/// A label with confidence score.
 #[derive(Debug, Clone)]
 pub struct Prediction {
-    /// The predicted label.
+    /// Label name.
     pub label: String,
     /// Confidence score (0.0 to 1.0).
     pub score: f32,
 }
 
-/// Output from single-text `.run()` or `.run_multi_label()`.
+/// Single-text output from `run()` or `run_multi_label()`.
 #[derive(Debug)]
 pub struct Output {
-    /// All labels with their scores, sorted by confidence.
+    /// All labels ranked by confidence.
     pub predictions: Vec<Prediction>,
     /// Execution statistics.
     pub stats: PipelineStats,
 }
 
-/// Output from batch `.run()` or `.run_multi_label()`.
+/// Single result in batch output.
+#[derive(Debug)]
+pub struct BatchResult {
+    /// Input text.
+    pub text: String,
+    /// Predictions or error for this input.
+    pub predictions: Result<Vec<Prediction>>,
+}
+
+/// Batch output from `run()` or `run_multi_label()`.
 #[derive(Debug)]
 pub struct BatchOutput {
-    /// Predictions for each input text (may have individual failures).
-    pub predictions: Vec<Result<Vec<Prediction>>>,
+    /// Results for each input.
+    pub results: Vec<BatchResult>,
     /// Execution statistics.
     pub stats: PipelineStats,
 }
 
 // ============ Input trait for type-based dispatch ============
 
-/// Trait for zero-shot input that determines output type.
+#[doc(hidden)]
 pub trait ZeroShotInput<'a> {
     /// Output type.
     type Output;
@@ -43,6 +52,7 @@ pub trait ZeroShotInput<'a> {
     fn into_texts(self) -> Vec<&'a str>;
     #[doc(hidden)]
     fn convert_output(
+        texts: Vec<&'a str>,
         predictions: Vec<Result<Vec<Prediction>>>,
         stats: PipelineStats,
     ) -> Result<Self::Output>;
@@ -56,6 +66,7 @@ impl<'a> ZeroShotInput<'a> for &'a str {
     }
 
     fn convert_output(
+        _texts: Vec<&'a str>,
         mut predictions: Vec<Result<Vec<Prediction>>>,
         stats: PipelineStats,
     ) -> Result<Self::Output> {
@@ -77,10 +88,19 @@ impl<'a> ZeroShotInput<'a> for &'a [&'a str] {
     }
 
     fn convert_output(
+        texts: Vec<&'a str>,
         predictions: Vec<Result<Vec<Prediction>>>,
         stats: PipelineStats,
     ) -> Result<Self::Output> {
-        Ok(BatchOutput { predictions, stats })
+        let results = texts
+            .into_iter()
+            .zip(predictions)
+            .map(|(text, predictions)| BatchResult {
+                text: text.to_string(),
+                predictions,
+            })
+            .collect();
+        Ok(BatchOutput { results, stats })
     }
 }
 
@@ -92,21 +112,27 @@ impl<'a, const N: usize> ZeroShotInput<'a> for &'a [&'a str; N] {
     }
 
     fn convert_output(
+        texts: Vec<&'a str>,
         predictions: Vec<Result<Vec<Prediction>>>,
         stats: PipelineStats,
     ) -> Result<Self::Output> {
-        Ok(BatchOutput { predictions, stats })
+        let results = texts
+            .into_iter()
+            .zip(predictions)
+            .map(|(text, predictions)| BatchResult {
+                text: text.to_string(),
+                predictions,
+            })
+            .collect();
+        Ok(BatchOutput { results, stats })
     }
 }
 
 // ============ Pipeline ============
 
-/// Pipeline for zero-shot text classification.
+/// Classifies text into arbitrary categories without training.
 ///
-/// Classify text into arbitrary categories without task-specific training.
-/// Labels are provided at inference time.
-///
-/// Use [`ZeroShotClassificationPipelineBuilder`](super::ZeroShotClassificationPipelineBuilder) to construct.
+/// Construct with [`ZeroShotClassificationPipelineBuilder`](super::ZeroShotClassificationPipelineBuilder).
 ///
 /// # Examples
 ///
@@ -116,14 +142,14 @@ impl<'a, const N: usize> ZeroShotInput<'a> for &'a [&'a str; N] {
 /// let pipeline = ZeroShotClassificationPipelineBuilder::modernbert(ModernBertSize::Base).build()?;
 /// let labels = &["sports", "politics", "technology"];
 ///
-/// // Single text - direct access to predictions Vec
+/// // Single text - direct access
 /// let output = pipeline.run("The team won the championship!", labels)?;
 /// println!("{}: {:.2}", output.predictions[0].label, output.predictions[0].score);
 ///
-/// // Batch - iterate results
+/// // Batch - results include input text
 /// let output = pipeline.run(&["Sports news", "Tech update"], labels)?;
-/// for preds in output.predictions {
-///     println!("{}", preds?[0].label);
+/// for r in output.results {
+///     println!("{} → {}", r.text, r.predictions?[0].label);
 /// }
 /// # Ok(())
 /// # }
@@ -134,10 +160,9 @@ pub struct ZeroShotClassificationPipeline<M: ZeroShotClassificationModel> {
 }
 
 impl<M: ZeroShotClassificationModel> ZeroShotClassificationPipeline<M> {
-    /// Classify text into one of the candidate labels (single-label, scores sum to 1.0).
+    /// Classify into one label (scores sum to 1.0).
     ///
-    /// - Single text input returns [`Output`] with direct `.predictions` access.
-    /// - Batch input returns [`BatchOutput`] with nested Vec.
+    /// Single input → [`Output`], batch → [`BatchOutput`].
     ///
     /// # Examples
     ///
@@ -147,12 +172,15 @@ impl<M: ZeroShotClassificationModel> ZeroShotClassificationPipeline<M> {
     /// # let pipeline = ZeroShotClassificationPipelineBuilder::modernbert(ModernBertSize::Base).build()?;
     /// let labels = &["sports", "politics", "technology"];
     ///
-    /// // Single - direct access
+    /// // Single
     /// let output = pipeline.run("The team won!", labels)?;
     /// println!("{}", output.predictions[0].label);
     ///
     /// // Batch
     /// let output = pipeline.run(&["Sports news", "Tech update"], labels)?;
+    /// for r in output.results {
+    ///     println!("{} → {}", r.text, r.predictions?[0].label);
+    /// }
     /// # Ok(())
     /// # }
     /// ```
@@ -164,9 +192,9 @@ impl<M: ZeroShotClassificationModel> ZeroShotClassificationPipeline<M> {
         self.run_internal(input, candidate_labels, false)
     }
 
-    /// Classify text with independent label probabilities (multi-label, scores don't sum to 1.0).
+    /// Classify with independent probabilities (scores don't sum to 1.0).
     ///
-    /// Use this when a text can belong to multiple categories simultaneously.
+    /// Use when text can match multiple categories.
     ///
     /// # Examples
     ///
@@ -176,7 +204,6 @@ impl<M: ZeroShotClassificationModel> ZeroShotClassificationPipeline<M> {
     /// # let pipeline = ZeroShotClassificationPipelineBuilder::modernbert(ModernBertSize::Base).build()?;
     /// let labels = &["urgent", "billing", "technical"];
     ///
-    /// // A support ticket might be both urgent AND technical
     /// let output = pipeline.run_multi_label("Critical server error!", labels)?;
     /// for pred in &output.predictions {
     ///     println!("{}: {:.2}", pred.label, pred.score);
@@ -222,7 +249,7 @@ impl<M: ZeroShotClassificationModel> ZeroShotClassificationPipeline<M> {
             })
             .collect();
 
-        I::convert_output(predictions, stats_builder.finish(item_count))
+        I::convert_output(texts, predictions, stats_builder.finish(item_count))
     }
 
     /// Returns the device (CPU/GPU) the model is running on.

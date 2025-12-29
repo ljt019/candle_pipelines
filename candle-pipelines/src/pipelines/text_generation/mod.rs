@@ -61,20 +61,20 @@
 //! # }
 //! ```
 //!
-//! # Streaming
+//! # Token Iteration
 //!
-//! Streaming is fully sync - no async runtime needed:
+//! Iterate over tokens as they're generated:
 //!
 //! ```rust,no_run
 //! # use candle_pipelines::text_generation::{TextGenerationPipelineBuilder, Qwen3Size};
 //! # fn main() -> candle_pipelines::error::Result<()> {
 //! # let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B).build()?;
-//! let mut stream = pipeline.run_iter("Write a poem about Rust.")?;
+//! let mut tokens = pipeline.run_iter("Write a poem about Rust.")?;
 //!
-//! for token in &mut stream {
+//! for token in &mut tokens {
 //!     print!("{}", token?);
 //! }
-//! let stats = stream.stats();
+//! let stats = tokens.stats();
 //! # Ok(())
 //! # }
 //! ```
@@ -122,10 +122,10 @@
 //!     .build();
 //!
 //! // Wrap the token iterator with XML parsing
-//! let stream = pipeline.run_iter("Solve 2+2. Think step by step.")?;
-//! let event_iter = parser.wrap_iterator(stream);
+//! let tokens = pipeline.run_iter("Solve 2+2. Think step by step.")?;
+//! let events = parser.wrap_iterator(tokens);
 //!
-//! for event in event_iter {
+//! for event in events {
 //!     match (event.tag(), event.part()) {
 //!         (Some("think"), TagParts::Content) => print!("[thinking] {}", event.get_content()),
 //!         (Some("answer"), TagParts::Content) => print!("[answer] {}", event.get_content()),
@@ -173,7 +173,7 @@ pub use model::{Reasoning, ToggleableReasoning};
 pub use params::GenerationParams;
 pub use parser::{Event, EventIterator, EventStream, TagParts, XmlParser, XmlParserBuilder};
 pub use pipeline::{
-    AnyTextGenerationPipeline, AnyTextGenerationPipelineExt, BoxedIterator, Output,
-    TextGeneration, TextGenerationPipeline,
+    AnyTextGenerationPipeline, AnyTextGenerationPipelineExt, BoxedIterator, Output, TextGeneration,
+    TextGenerationPipeline,
 };
 pub use tools::{ErrorStrategy, Tool, ToolCalling};

@@ -37,7 +37,7 @@ fn main() -> Result<()> {
         );
     }
 
-    // Batch inference
+    // Batch inference - results include input text!
     println!("\n=== Batch Inference ===");
     let texts = &[
         "The capital of France is [MASK].",
@@ -47,9 +47,9 @@ fn main() -> Result<()> {
 
     let output = pipeline.run(texts)?;
 
-    for (text, pred) in texts.iter().zip(output.predictions) {
-        let p = pred?;
-        println!("{} → \"{}\"", text, p.token);
+    for r in output.results {
+        let p = r.prediction?;
+        println!("{} → \"{}\"", r.text, p.token);
     }
 
     Ok(())

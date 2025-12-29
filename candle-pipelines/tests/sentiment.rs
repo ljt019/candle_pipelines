@@ -44,12 +44,9 @@ fn sentiment_batch_faster_than_sequential() -> Result<()> {
     let batched_output = pipeline.run(texts)?;
     let batched_time = start.elapsed();
 
-    for (seq, batch) in sequential_results
-        .into_iter()
-        .zip(batched_output.predictions.into_iter())
-    {
+    for (seq, batch) in sequential_results.into_iter().zip(batched_output.results) {
         let seq = seq.unwrap().prediction;
-        let batch = batch.unwrap();
+        let batch = batch.prediction.unwrap();
         assert_eq!(seq.label, batch.label, "Labels should match");
     }
 

@@ -45,8 +45,8 @@
 //! # let pipeline = FillMaskPipelineBuilder::modernbert(ModernBertSize::Base).build()?;
 //! let output = pipeline.run(&["The [MASK] is shining.", "She plays the [MASK] beautifully."])?;
 //!
-//! for pred in output.predictions {
-//!     println!("{}", pred?.token);
+//! for r in output.results {
+//!     println!("{} → {}", r.text, r.prediction?.token);
 //! }
 //! # Ok(())
 //! # }
@@ -72,8 +72,12 @@ pub use crate::models::ModernBertSize;
 pub use crate::pipelines::stats::PipelineStats;
 pub use builder::FillMaskPipelineBuilder;
 pub use pipeline::{
-    BatchOutput, BatchTopKOutput, FillMaskInput, FillMaskPipeline, Output, Prediction, TopKOutput,
+    BatchOutput, BatchResult, BatchTopKOutput, BatchTopKResult, FillMaskPipeline, Output,
+    Prediction, TopKOutput,
 };
+
+#[doc(hidden)]
+pub use pipeline::FillMaskInput;
 
 /// Only for generic annotations. Use [`FillMaskPipelineBuilder::modernbert`].
 pub type FillMaskModernBert = crate::models::modernbert::FillMaskModernBertModel;

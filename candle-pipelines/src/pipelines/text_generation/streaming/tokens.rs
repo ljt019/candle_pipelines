@@ -1,17 +1,18 @@
 use crate::error::Result;
 use std::sync::{Arc, Mutex};
 
-/// A streaming iterator over generated tokens.
+/// Iterator over generated tokens.
 ///
-/// This is a sync iterator - each call to `next()` blocks while generating the next token.
-/// For web server integration, wrap with `tokio::task::spawn_blocking` or use
-/// `tokio_stream::iter()`.
-pub struct CompletionStream<I> {
+/// Each call to `next()` blocks while generating the next token.
+/// Call `.stats()` after iteration to get generation statistics.
+///
+/// For async/web server integration, wrap with `tokio::task::spawn_blocking`.
+pub struct Tokens<I> {
     inner: I,
     stats: Arc<Mutex<crate::pipelines::text_generation::stats::GenerationStats>>,
 }
 
-impl<I> CompletionStream<I> {
+impl<I> Tokens<I> {
     pub(crate) fn new(
         inner: I,
         stats: Arc<Mutex<crate::pipelines::text_generation::stats::GenerationStats>>,
@@ -19,13 +20,13 @@ impl<I> CompletionStream<I> {
         Self { inner, stats }
     }
 
-    /// Get current generation statistics.
+    /// Get generation statistics.
     pub fn stats(&self) -> crate::pipelines::text_generation::stats::GenerationStats {
         self.stats.lock().unwrap().clone()
     }
 }
 
-impl<I> Iterator for CompletionStream<I>
+impl<I> Iterator for Tokens<I>
 where
     I: Iterator<Item = Result<String>>,
 {
@@ -36,7 +37,7 @@ where
     }
 }
 
-impl<I> CompletionStream<I>
+impl<I> Tokens<I>
 where
     I: Iterator<Item = Result<String>>,
 {

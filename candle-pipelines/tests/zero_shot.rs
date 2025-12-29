@@ -45,16 +45,10 @@ fn zero_shot_batch_faster_than_sequential() -> Result<()> {
     let batched_output = pipeline.run(texts, labels)?;
     let batched_time = start.elapsed();
 
-    for (seq, batch) in sequential_results
-        .into_iter()
-        .zip(batched_output.predictions.into_iter())
-    {
+    for (seq, batch) in sequential_results.into_iter().zip(batched_output.results) {
         let seq = &seq.unwrap().predictions[0];
-        let batch = &batch.unwrap()[0];
-        assert_eq!(
-            seq.label, batch.label,
-            "Top predicted label should match"
-        );
+        let batch = &batch.predictions.unwrap()[0];
+        assert_eq!(seq.label, batch.label, "Top predicted label should match");
     }
 
     assert!(

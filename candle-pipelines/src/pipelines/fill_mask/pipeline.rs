@@ -5,54 +5,72 @@ use tokenizers::Tokenizer;
 
 // ============ Output types ============
 
-/// A single prediction from fill-mask inference.
+/// A predicted token with confidence score.
 #[derive(Debug, Clone)]
 pub struct Prediction {
-    /// The predicted word/token.
+    /// Predicted word/token.
     pub token: String,
-    /// Confidence score (probability).
+    /// Confidence score (0.0 to 1.0).
     pub score: f32,
 }
 
-/// Output from single-text `.run()`.
+/// Single-text output from `run()`.
 #[derive(Debug)]
 pub struct Output {
-    /// The prediction for the input text.
+    /// Predicted token.
     pub prediction: Prediction,
     /// Execution statistics.
     pub stats: PipelineStats,
 }
 
-/// Output from batch `.run()`.
+/// Single result in batch output.
+#[derive(Debug)]
+pub struct BatchResult {
+    /// Input text.
+    pub text: String,
+    /// Prediction or error for this input.
+    pub prediction: Result<Prediction>,
+}
+
+/// Batch output from `run()`.
 #[derive(Debug)]
 pub struct BatchOutput {
-    /// Predictions for each input text (may have individual failures).
-    pub predictions: Vec<Result<Prediction>>,
+    /// Results for each input.
+    pub results: Vec<BatchResult>,
     /// Execution statistics.
     pub stats: PipelineStats,
 }
 
-/// Output from single-text `.run_top_k()`.
+/// Single-text output from `run_top_k()`.
 #[derive(Debug)]
 pub struct TopKOutput {
-    /// Top k predictions for the input text.
+    /// Top k predictions.
     pub predictions: Vec<Prediction>,
     /// Execution statistics.
     pub stats: PipelineStats,
 }
 
-/// Output from batch `.run_top_k()`.
+/// Single result in batch top-k output.
+#[derive(Debug)]
+pub struct BatchTopKResult {
+    /// Input text.
+    pub text: String,
+    /// Top-k predictions or error for this input.
+    pub predictions: Result<Vec<Prediction>>,
+}
+
+/// Batch output from `run_top_k()`.
 #[derive(Debug)]
 pub struct BatchTopKOutput {
-    /// Top k predictions for each input text (may have individual failures).
-    pub predictions: Vec<Result<Vec<Prediction>>>,
+    /// Results for each input.
+    pub results: Vec<BatchTopKResult>,
     /// Execution statistics.
     pub stats: PipelineStats,
 }
 
 // ============ Input trait for type-based dispatch ============
 
-/// Trait for fill-mask input that determines output type.
+#[doc(hidden)]
 pub trait FillMaskInput<'a> {
     /// Output type for `.run()`.
     type RunOutput;
@@ -62,9 +80,17 @@ pub trait FillMaskInput<'a> {
     #[doc(hidden)]
     fn into_texts(self) -> Vec<&'a str>;
     #[doc(hidden)]
-    fn convert_run_output(predictions: Vec<Result<Prediction>>, stats: PipelineStats) -> Result<Self::RunOutput>;
+    fn convert_run_output(
+        texts: Vec<&'a str>,
+        predictions: Vec<Result<Prediction>>,
+        stats: PipelineStats,
+    ) -> Result<Self::RunOutput>;
     #[doc(hidden)]
-    fn convert_top_k_output(predictions: Vec<Result<Vec<Prediction>>>, stats: PipelineStats) -> Result<Self::TopKOutput>;
+    fn convert_top_k_output(
+        texts: Vec<&'a str>,
+        predictions: Vec<Result<Vec<Prediction>>>,
+        stats: PipelineStats,
+    ) -> Result<Self::TopKOutput>;
 }
 
 impl<'a> FillMaskInput<'a> for &'a str {
@@ -75,16 +101,29 @@ impl<'a> FillMaskInput<'a> for &'a str {
         vec![self]
     }
 
-    fn convert_run_output(mut predictions: Vec<Result<Prediction>>, stats: PipelineStats) -> Result<Self::RunOutput> {
-        let prediction = predictions.pop()
+    fn convert_run_output(
+        _texts: Vec<&'a str>,
+        mut predictions: Vec<Result<Prediction>>,
+        stats: PipelineStats,
+    ) -> Result<Self::RunOutput> {
+        let prediction = predictions
+            .pop()
             .ok_or_else(|| PipelineError::Unexpected("No predictions returned".into()))??;
         Ok(Output { prediction, stats })
     }
 
-    fn convert_top_k_output(mut predictions: Vec<Result<Vec<Prediction>>>, stats: PipelineStats) -> Result<Self::TopKOutput> {
-        let preds = predictions.pop()
+    fn convert_top_k_output(
+        _texts: Vec<&'a str>,
+        mut predictions: Vec<Result<Vec<Prediction>>>,
+        stats: PipelineStats,
+    ) -> Result<Self::TopKOutput> {
+        let preds = predictions
+            .pop()
             .ok_or_else(|| PipelineError::Unexpected("No predictions returned".into()))??;
-        Ok(TopKOutput { predictions: preds, stats })
+        Ok(TopKOutput {
+            predictions: preds,
+            stats,
+        })
     }
 }
 
@@ -96,12 +135,36 @@ impl<'a> FillMaskInput<'a> for &'a [&'a str] {
         self.to_vec()
     }
 
-    fn convert_run_output(predictions: Vec<Result<Prediction>>, stats: PipelineStats) -> Result<Self::RunOutput> {
-        Ok(BatchOutput { predictions, stats })
+    fn convert_run_output(
+        texts: Vec<&'a str>,
+        predictions: Vec<Result<Prediction>>,
+        stats: PipelineStats,
+    ) -> Result<Self::RunOutput> {
+        let results = texts
+            .into_iter()
+            .zip(predictions)
+            .map(|(text, prediction)| BatchResult {
+                text: text.to_string(),
+                prediction,
+            })
+            .collect();
+        Ok(BatchOutput { results, stats })
     }
 
-    fn convert_top_k_output(predictions: Vec<Result<Vec<Prediction>>>, stats: PipelineStats) -> Result<Self::TopKOutput> {
-        Ok(BatchTopKOutput { predictions, stats })
+    fn convert_top_k_output(
+        texts: Vec<&'a str>,
+        predictions: Vec<Result<Vec<Prediction>>>,
+        stats: PipelineStats,
+    ) -> Result<Self::TopKOutput> {
+        let results = texts
+            .into_iter()
+            .zip(predictions)
+            .map(|(text, predictions)| BatchTopKResult {
+                text: text.to_string(),
+                predictions,
+            })
+            .collect();
+        Ok(BatchTopKOutput { results, stats })
     }
 }
 
@@ -114,22 +177,44 @@ impl<'a, const N: usize> FillMaskInput<'a> for &'a [&'a str; N] {
         self.as_slice().to_vec()
     }
 
-    fn convert_run_output(predictions: Vec<Result<Prediction>>, stats: PipelineStats) -> Result<Self::RunOutput> {
-        Ok(BatchOutput { predictions, stats })
+    fn convert_run_output(
+        texts: Vec<&'a str>,
+        predictions: Vec<Result<Prediction>>,
+        stats: PipelineStats,
+    ) -> Result<Self::RunOutput> {
+        let results = texts
+            .into_iter()
+            .zip(predictions)
+            .map(|(text, prediction)| BatchResult {
+                text: text.to_string(),
+                prediction,
+            })
+            .collect();
+        Ok(BatchOutput { results, stats })
     }
 
-    fn convert_top_k_output(predictions: Vec<Result<Vec<Prediction>>>, stats: PipelineStats) -> Result<Self::TopKOutput> {
-        Ok(BatchTopKOutput { predictions, stats })
+    fn convert_top_k_output(
+        texts: Vec<&'a str>,
+        predictions: Vec<Result<Vec<Prediction>>>,
+        stats: PipelineStats,
+    ) -> Result<Self::TopKOutput> {
+        let results = texts
+            .into_iter()
+            .zip(predictions)
+            .map(|(text, predictions)| BatchTopKResult {
+                text: text.to_string(),
+                predictions,
+            })
+            .collect();
+        Ok(BatchTopKOutput { results, stats })
     }
 }
 
 // ============ Pipeline ============
 
-/// Pipeline for masked language modeling (fill-in-the-blank).
+/// Predicts tokens for `[MASK]` placeholders in text.
 ///
-/// Predicts the most likely token(s) for a `[MASK]` placeholder in text.
-///
-/// Use [`FillMaskPipelineBuilder`](super::FillMaskPipelineBuilder) to construct.
+/// Construct with [`FillMaskPipelineBuilder`](super::FillMaskPipelineBuilder).
 ///
 /// # Examples
 ///
@@ -138,14 +223,14 @@ impl<'a, const N: usize> FillMaskInput<'a> for &'a [&'a str; N] {
 /// # fn main() -> candle_pipelines::error::Result<()> {
 /// let pipeline = FillMaskPipelineBuilder::modernbert(ModernBertSize::Base).build()?;
 ///
-/// // Single text - returns Output with direct access
+/// // Single text - direct access
 /// let output = pipeline.run("The capital of France is [MASK].")?;
 /// println!("{}: {:.2}", output.prediction.token, output.prediction.score);
 ///
-/// // Batch - returns BatchOutput with Vec
+/// // Batch - results include input text
 /// let output = pipeline.run(&["Paris is [MASK].", "London is [MASK]."])?;
-/// for pred in output.predictions {
-///     println!("{}", pred?.token);
+/// for r in output.results {
+///     println!("{} → {}", r.text, r.prediction?.token);
 /// }
 /// # Ok(())
 /// # }
@@ -156,10 +241,9 @@ pub struct FillMaskPipeline<M: FillMaskModel> {
 }
 
 impl<M: FillMaskModel> FillMaskPipeline<M> {
-    /// Predict the single most likely token for each `[MASK]` position.
+    /// Predict most likely token for `[MASK]`.
     ///
-    /// - Single text input returns [`Output`] with direct `.prediction` access.
-    /// - Batch input returns [`BatchOutput`] with `.predictions` Vec.
+    /// Single input → [`Output`], batch → [`BatchOutput`].
     ///
     /// # Examples
     ///
@@ -167,14 +251,14 @@ impl<M: FillMaskModel> FillMaskPipeline<M> {
     /// # use candle_pipelines::fill_mask::{FillMaskPipelineBuilder, ModernBertSize};
     /// # fn main() -> candle_pipelines::error::Result<()> {
     /// # let pipeline = FillMaskPipelineBuilder::modernbert(ModernBertSize::Base).build()?;
-    /// // Single - direct access
+    /// // Single
     /// let output = pipeline.run("The [MASK] sat on the mat.")?;
     /// println!("{}", output.prediction.token);
     ///
-    /// // Batch - iterate results
+    /// // Batch
     /// let output = pipeline.run(&["The [MASK] sat.", "A [MASK] barked."])?;
-    /// for pred in output.predictions {
-    ///     println!("{}", pred?.token);
+    /// for r in output.results {
+    ///     println!("{} → {}", r.text, r.prediction?.token);
     /// }
     /// # Ok(())
     /// # }
@@ -190,20 +274,25 @@ impl<M: FillMaskModel> FillMaskPipeline<M> {
             .into_iter()
             .map(|result| {
                 result.and_then(|mut preds| {
-                    preds.pop().ok_or_else(|| {
-                        PipelineError::Unexpected("Model returned no predictions".to_string())
-                    }).map(|p| Prediction { token: p.word, score: p.score })
+                    preds
+                        .pop()
+                        .ok_or_else(|| {
+                            PipelineError::Unexpected("Model returned no predictions".to_string())
+                        })
+                        .map(|p| Prediction {
+                            token: p.word,
+                            score: p.score,
+                        })
                 })
             })
             .collect();
 
-        I::convert_run_output(predictions, stats_builder.finish(item_count))
+        I::convert_run_output(texts, predictions, stats_builder.finish(item_count))
     }
 
-    /// Predict the top `k` most likely tokens for each `[MASK]` position.
+    /// Predict top `k` tokens for `[MASK]`.
     ///
-    /// - Single text input returns [`TopKOutput`] with direct `.predictions` Vec.
-    /// - Batch input returns [`BatchTopKOutput`] with nested Vec.
+    /// Single input → [`TopKOutput`], batch → [`BatchTopKOutput`].
     ///
     /// # Examples
     ///
@@ -211,7 +300,6 @@ impl<M: FillMaskModel> FillMaskPipeline<M> {
     /// # use candle_pipelines::fill_mask::{FillMaskPipelineBuilder, ModernBertSize};
     /// # fn main() -> candle_pipelines::error::Result<()> {
     /// # let pipeline = FillMaskPipelineBuilder::modernbert(ModernBertSize::Base).build()?;
-    /// // Single - direct Vec of predictions
     /// let output = pipeline.run_top_k("The [MASK] sat on the mat.", 5)?;
     /// for pred in &output.predictions {
     ///     println!("{}: {:.2}", pred.token, pred.score);
@@ -232,13 +320,16 @@ impl<M: FillMaskModel> FillMaskPipeline<M> {
                 result.map(|preds| {
                     preds
                         .into_iter()
-                        .map(|p| Prediction { token: p.word, score: p.score })
+                        .map(|p| Prediction {
+                            token: p.word,
+                            score: p.score,
+                        })
                         .collect()
                 })
             })
             .collect();
 
-        I::convert_top_k_output(predictions, stats_builder.finish(item_count))
+        I::convert_top_k_output(texts, predictions, stats_builder.finish(item_count))
     }
 
     /// Returns the device (CPU/GPU) the model is running on.
