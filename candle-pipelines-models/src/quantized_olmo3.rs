@@ -156,6 +156,7 @@ struct AttentionWeights {
 }
 
 impl AttentionWeights {
+    #[allow(clippy::too_many_arguments)]
     fn new<R: Read + Seek>(
         gg: &mut Gguf<R>,
         num_heads: usize,
@@ -294,7 +295,7 @@ impl AttentionWeights {
         // Generate per-layer attention mask (with sliding window if configured)
         if l > 1 {
             let attn_mask =
-                self.prepare_attention_mask(b, l, offset, q.dtype(), &q.device())?;
+                self.prepare_attention_mask(b, l, offset, q.dtype(), q.device())?;
             scores = scores.broadcast_add(&attn_mask)?;
         }
 
@@ -316,6 +317,7 @@ struct LayerWeights {
 }
 
 impl LayerWeights {
+    #[allow(clippy::too_many_arguments)]
     fn new<R: Read + Seek>(
         gg: &mut Gguf<R>,
         num_heads: usize,

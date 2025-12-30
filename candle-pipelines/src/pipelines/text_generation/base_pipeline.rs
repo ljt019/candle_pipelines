@@ -1,7 +1,7 @@
-use super::model::TextGenerationModel;
 use super::params::{apply_repeat_penalty, initialize_logits_processor, GenerationParams};
-use super::stats::GenerationStats;
+use crate::pipelines::stats::GenerationStats;
 use crate::error::{PipelineError, Result};
+use crate::models::capabilities::TextGenerationModel;
 use candle_core::Tensor;
 use std::sync::{Arc, Mutex};
 use tokenizers::Tokenizer;

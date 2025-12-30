@@ -6,6 +6,7 @@ use minijinja_contrib::{add_to_environment, pycompat};
 use std::sync::Arc;
 use tokenizers::Tokenizer;
 
+use super::tool_parser::Qwen3Parser;
 use crate::error::{PipelineError, Result};
 
 /// Available Qwen 3 model sizes.
@@ -235,10 +236,9 @@ pub struct ModelInfo {
     pub _device: Device,
 }
 
-use crate::pipelines::text_generation::model::{
-    ModelCache, Reasoning, TextGenerationModel, ToggleableReasoning,
+use crate::models::capabilities::{
+    ModelCache, Reasoning, TextGenerationModel, ToggleableReasoning, ToolCalling,
 };
-use crate::pipelines::text_generation::tools::ToolCalling;
 
 // Implement ModelCache for the external cache type
 impl ModelCache for candle_qwen3::Cache {
@@ -380,4 +380,10 @@ impl ToggleableReasoning for Qwen3 {
     }
 }
 
-impl ToolCalling for Qwen3 {}
+impl ToolCalling for Qwen3 {
+    type Parser = Qwen3Parser;
+
+    fn new_parser(&self) -> Self::Parser {
+        Qwen3Parser::new()
+    }
+}

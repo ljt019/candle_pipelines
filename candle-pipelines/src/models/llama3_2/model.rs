@@ -8,54 +8,55 @@ use minijinja::{context, Environment};
 use minijinja_contrib::{add_to_environment, pycompat};
 use tokenizers::Tokenizer;
 
+use super::tool_parser::LlamaToolParser;
 use crate::error::{PipelineError, Result};
 use crate::loaders::GenerationConfig;
 use crate::loaders::{GenerationConfigLoader, GgufModelLoader, HfLoader, TokenizerLoader};
-use crate::pipelines::text_generation::model::{ModelCache, TextGenerationModel};
+use crate::models::capabilities::{ModelCache, TextGenerationModel, ToolCalling};
 
 /// Available Llama 3.2 model sizes.
 #[derive(Debug, Clone, Copy)]
-pub enum Llama3Size {
+pub enum Llama3_2Size {
     /// 1 billion parameters.
     Size1B,
     /// 3 billion parameters.
     Size3B,
 }
 
-impl Llama3Size {
+impl Llama3_2Size {
     pub(crate) fn weight_repo_id(&self) -> &str {
         match self {
-            Llama3Size::Size1B => "unsloth/Llama-3.2-1B-Instruct-GGUF",
-            Llama3Size::Size3B => "unsloth/Llama-3.2-3B-Instruct-GGUF",
+            Llama3_2Size::Size1B => "unsloth/Llama-3.2-1B-Instruct-GGUF",
+            Llama3_2Size::Size3B => "unsloth/Llama-3.2-3B-Instruct-GGUF",
         }
     }
 
     pub(crate) fn weight_filename(&self) -> &str {
         match self {
-            Llama3Size::Size1B => "Llama-3.2-1B-Instruct-Q4_K_M.gguf",
-            Llama3Size::Size3B => "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+            Llama3_2Size::Size1B => "Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+            Llama3_2Size::Size3B => "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
         }
     }
 
     pub(crate) fn config_repo_id(&self) -> &str {
         match self {
-            Llama3Size::Size1B => "meta-llama/Llama-3.2-1B-Instruct",
-            Llama3Size::Size3B => "meta-llama/Llama-3.2-3B-Instruct",
+            Llama3_2Size::Size1B => "meta-llama/Llama-3.2-1B-Instruct",
+            Llama3_2Size::Size3B => "meta-llama/Llama-3.2-3B-Instruct",
         }
     }
 }
 
-impl std::fmt::Display for Llama3Size {
+impl std::fmt::Display for Llama3_2Size {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let name = match self {
-            Llama3Size::Size1B => "llama3.2-1b",
-            Llama3Size::Size3B => "llama3.2-3b",
+            Llama3_2Size::Size1B => "llama3.2-1b",
+            Llama3_2Size::Size3B => "llama3.2-3b",
         };
         write!(f, "{name}")
     }
 }
 
-impl crate::pipelines::cache::ModelOptions for Llama3Size {
+impl crate::pipelines::cache::ModelOptions for Llama3_2Size {
     fn cache_key(&self) -> String {
         self.to_string()
     }
@@ -72,7 +73,7 @@ pub struct ModelInfo {
 
 /// Only for generic annotations. Use [`TextGenerationPipelineBuilder::llama3`](crate::text_generation::TextGenerationPipelineBuilder::llama3).
 #[derive(Clone)]
-pub struct Llama3 {
+pub struct Llama3_2 {
     weights: Arc<candle_llama::ModelWeights>,
     info: ModelInfo,
     tokenizer_repo_id: String,
@@ -80,7 +81,7 @@ pub struct Llama3 {
     chat_template_env: Arc<Environment<'static>>,
 }
 
-impl Llama3 {
+impl Llama3_2 {
     fn parse_metadata(content: &gguf_file::Content, device: &Device) -> Result<ModelInfo> {
         let num_layers = content
             .metadata
@@ -195,7 +196,7 @@ impl Llama3 {
         })
     }
 
-    pub(crate) fn from_hf(device: &Device, size: Llama3Size) -> Result<Self> {
+    pub(crate) fn from_hf(device: &Device, size: Llama3_2Size) -> Result<Self> {
         let loader = GgufModelLoader::new(size.weight_repo_id(), size.weight_filename());
         let (file, content) = loader.load()?;
 
@@ -215,7 +216,7 @@ impl Llama3 {
         )
     }
 
-    pub(crate) async fn from_hf_async(device: &Device, size: Llama3Size) -> Result<Self> {
+    pub(crate) async fn from_hf_async(device: &Device, size: Llama3_2Size) -> Result<Self> {
         let loader = GgufModelLoader::new(size.weight_repo_id(), size.weight_filename());
         let (file, content) = loader.load_async().await?;
 
@@ -254,20 +255,20 @@ impl ModelCache for candle_llama::Cache {
     }
 }
 
-impl TextGenerationModel for Llama3 {
-    type Options = Llama3Size;
+impl TextGenerationModel for Llama3_2 {
+    type Options = Llama3_2Size;
     type Cache = candle_llama::Cache;
 
     fn new(options: Self::Options, device: Device) -> Result<Self> {
-        Llama3::from_hf(&device, options)
+        Llama3_2::from_hf(&device, options)
     }
 
     async fn new_async(options: Self::Options, device: Device) -> Result<Self> {
-        Llama3::from_hf_async(&device, options).await
+        Llama3_2::from_hf_async(&device, options).await
     }
 
     fn get_tokenizer(&self) -> Result<Tokenizer> {
-        Llama3::get_tokenizer(self)
+        Llama3_2::get_tokenizer(self)
     }
 
     fn apply_chat_template(
@@ -373,6 +374,10 @@ impl TextGenerationModel for Llama3 {
     }
 }
 
-use crate::pipelines::text_generation::tools::ToolCalling;
+impl ToolCalling for Llama3_2 {
+    type Parser = LlamaToolParser;
 
-impl ToolCalling for Llama3 {}
+    fn new_parser(&self) -> Self::Parser {
+        LlamaToolParser::new()
+    }
+}

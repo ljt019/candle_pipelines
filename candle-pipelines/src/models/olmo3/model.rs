@@ -6,6 +6,7 @@ use minijinja_contrib::{add_to_environment, pycompat};
 use std::sync::Arc;
 use tokenizers::Tokenizer;
 
+use super::tool_parser::Olmo3Parser;
 use crate::error::{PipelineError, Result};
 
 /// Available OLMo-3 model sizes.
@@ -91,11 +92,26 @@ impl Olmo3 {
         // Fix: .get('key', none) -> .key with default filter for safe access
         // Also fix "is not none" checks to work with undefined
         chat_template_owned = chat_template_owned
-            .replace("message.get('content', none) is not none", "message.content")
-            .replace("message.get('function_calls', none) is not none", "message.function_calls")
-            .replace("message.get('tool_calls', none) is not none", "message.tool_calls")
-            .replace("message.get('functions', none) is not none", "message.functions")
-            .replace("tool_call.get('function', none) is not none", "tool_call.function")
+            .replace(
+                "message.get('content', none) is not none",
+                "message.content",
+            )
+            .replace(
+                "message.get('function_calls', none) is not none",
+                "message.function_calls",
+            )
+            .replace(
+                "message.get('tool_calls', none) is not none",
+                "message.tool_calls",
+            )
+            .replace(
+                "message.get('functions', none) is not none",
+                "message.functions",
+            )
+            .replace(
+                "tool_call.get('function', none) is not none",
+                "tool_call.function",
+            )
             // Now replace remaining .get() calls with attribute access
             .replace(".get('content', none)", ".content")
             .replace(".get('function_calls', none)", ".function_calls")
@@ -114,9 +130,7 @@ impl Olmo3 {
         let chat_template_static = Box::leak(chat_template_owned.into_boxed_str());
         env.add_template("chat", chat_template_static)
             .map_err(|e| {
-                PipelineError::Unexpected(format!(
-                    "Failed to parse chat template for OLMo-3: {e}"
-                ))
+                PipelineError::Unexpected(format!("Failed to parse chat template for OLMo-3: {e}"))
             })?;
 
         Ok(Arc::new(env))
@@ -202,8 +216,7 @@ impl Olmo3 {
     }
 
     pub(crate) fn get_tokenizer(&self) -> Result<Tokenizer> {
-        let tokenizer_loader =
-            TokenizerLoader::new("allenai/Olmo-3-7B-Instruct", "tokenizer.json");
+        let tokenizer_loader = TokenizerLoader::new("allenai/Olmo-3-7B-Instruct", "tokenizer.json");
         tokenizer_loader.load()
     }
 }
@@ -214,8 +227,7 @@ pub struct ModelInfo {
     pub _device: Device,
 }
 
-use crate::pipelines::text_generation::model::{ModelCache, TextGenerationModel};
-use crate::pipelines::text_generation::tools::ToolCalling;
+use crate::models::capabilities::{ModelCache, TextGenerationModel, ToolCalling};
 
 // Implement ModelCache for the external cache type
 impl ModelCache for candle_olmo3::Cache {
@@ -352,4 +364,10 @@ impl TextGenerationModel for Olmo3 {
     }
 }
 
-impl ToolCalling for Olmo3 {}
+impl ToolCalling for Olmo3 {
+    type Parser = Olmo3Parser;
+
+    fn new_parser(&self) -> Self::Parser {
+        Olmo3Parser::new()
+    }
+}

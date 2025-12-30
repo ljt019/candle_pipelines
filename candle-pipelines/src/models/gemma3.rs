@@ -11,7 +11,7 @@ use tokenizers::Tokenizer;
 use crate::error::{PipelineError, Result};
 use crate::loaders::GenerationConfig;
 use crate::loaders::{GenerationConfigLoader, GgufModelLoader, HfLoader, TokenizerLoader};
-use crate::pipelines::text_generation::model::{ModelCache, TextGenerationModel};
+use crate::models::capabilities::{ModelCache, TextGenerationModel};
 
 /// Available Gemma 3 model sizes.
 #[derive(Debug, Clone, Copy)]

@@ -8,14 +8,173 @@
 //! </function_calls>
 //! ```
 
+use std::collections::VecDeque;
+
 use regex::Regex;
 use serde_json::{json, Value};
+
+use crate::models::capabilities::{ParseEvent, ToolCallInvocation, ToolCallParser};
+use crate::pipelines::text_generation::xml_parser::{Event, TagParts, XmlParser, XmlParserBuilder};
 
 /// Represents a parsed OLMo-3 tool call.
 #[derive(Debug, Clone)]
 pub struct Olmo3ToolCall {
     pub name: String,
     pub arguments: Value,
+}
+
+impl Olmo3ToolCall {
+    /// Convert to the standard ToolCallInvocation format.
+    pub fn into_invocation(self) -> ToolCallInvocation {
+        ToolCallInvocation::new(self.name, self.arguments)
+    }
+}
+
+/// Streaming parser for OLMo-3 tool calls.
+///
+/// Wraps [`XmlParser`] configured to detect `<function_calls>` tags and
+/// parses the Python-like function call syntax inside.
+///
+/// Implements [`ToolCallParser`] for integration with the generic tool-aware iterator.
+#[derive(Debug, Clone)]
+pub struct Olmo3Parser {
+    xml_parser: XmlParser,
+    /// Queue of events to emit (FIFO)
+    pending_events: VecDeque<ParseEvent>,
+}
+
+impl Default for Olmo3Parser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Olmo3Parser {
+    /// Create a new OLMo-3 tool call parser.
+    pub fn new() -> Self {
+        let xml_parser = XmlParserBuilder::new()
+            .register_tag("function_calls")
+            .build();
+
+        Self {
+            xml_parser,
+            pending_events: VecDeque::new(),
+        }
+    }
+
+    /// Process an XmlParser event and convert to ParseEvents.
+    fn process_xml_event(&mut self, event: Event) {
+        match &event {
+            Event::Tagged { tag, part, content } if tag == "function_calls" => {
+                match part {
+                    TagParts::Start => {
+                        // Function calls block starting - continue buffering
+                    }
+                    TagParts::Content => {
+                        // Content inside function_calls - continue buffering
+                    }
+                    TagParts::End => {
+                        // Block complete - parse all function calls
+                        self.parse_function_calls_block(content);
+                    }
+                }
+            }
+            Event::Tagged {
+                tag: _,
+                part,
+                content,
+            } => {
+                // Other registered tags - emit as text
+                if let TagParts::Content = part {
+                    if !content.is_empty() {
+                        self.pending_events.push_back(ParseEvent::text(content));
+                    }
+                }
+            }
+            Event::Output { part, content } => {
+                // Regular output - emit as text
+                if let TagParts::Content = part {
+                    if !content.is_empty() {
+                        self.pending_events.push_back(ParseEvent::text(content));
+                    }
+                }
+            }
+            Event::Error { message } => {
+                self.pending_events.push_back(ParseEvent::error(message));
+            }
+        }
+    }
+
+    /// Parse a complete function_calls block and emit tool call events.
+    fn parse_function_calls_block(&mut self, full_xml: &str) {
+        // Extract content from tags
+        let inner = full_xml
+            .strip_prefix("<function_calls>")
+            .and_then(|s| s.strip_suffix("</function_calls>"))
+            .unwrap_or(full_xml)
+            .trim();
+
+        // Parse all function calls
+        let mut remaining = inner;
+        while !remaining.is_empty() {
+            if let Some((call, rest)) = parse_function_call(remaining) {
+                self.pending_events
+                    .push_back(ParseEvent::ToolCall(Ok(call.into_invocation())));
+                remaining = rest.trim();
+            } else {
+                // Couldn't parse - emit remaining as text
+                if !remaining.trim().is_empty() {
+                    self.pending_events.push_back(ParseEvent::malformed(
+                        remaining,
+                        "Failed to parse function call",
+                    ));
+                }
+                break;
+            }
+        }
+    }
+}
+
+impl ToolCallParser for Olmo3Parser {
+    fn feed(&mut self, token: &str) -> ParseEvent {
+        // Feed token to XML parser and process any resulting events
+        if !token.is_empty() {
+            let events = self.xml_parser.parse_token(token);
+
+            // Process events
+            for event in events {
+                self.process_xml_event(event);
+            }
+        }
+
+        // Return first pending event (FIFO), or Continue
+        self.pending_events
+            .pop_front()
+            .unwrap_or(ParseEvent::Continue)
+    }
+
+    fn flush(&mut self) -> Option<ParseEvent> {
+        // First return any pending events
+        if let Some(event) = self.pending_events.pop_front() {
+            return Some(event);
+        }
+
+        // Flush XML parser
+        let events = self.xml_parser.flush();
+
+        // Process flush events
+        for event in events {
+            self.process_xml_event(event);
+        }
+
+        // Return first pending event
+        self.pending_events.pop_front()
+    }
+
+    fn reset(&mut self) {
+        self.xml_parser.reset();
+        self.pending_events.clear();
+    }
 }
 
 /// Extract tool calls from OLMo-3's function call format.
@@ -233,6 +392,8 @@ fn parse_arguments(args_str: &str) -> Value {
 mod tests {
     use super::*;
 
+    // ============ Non-streaming tests ============
+
     #[test]
     fn test_parse_simple_call() {
         let text = r#"<function_calls>get_weather(location="Paris")</function_calls>"#;
@@ -240,6 +401,121 @@ mod tests {
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].name, "get_weather");
         assert_eq!(calls[0].arguments["location"], "Paris");
+    }
+
+    // ============ Streaming parser tests ============
+
+    #[test]
+    fn test_streaming_simple_call() {
+        let mut parser = Olmo3Parser::new();
+
+        let input = r#"<function_calls>get_weather(location="Paris")</function_calls>"#;
+
+        let mut events = Vec::new();
+        for c in input.chars() {
+            let event = parser.feed(&c.to_string());
+            if !event.is_continue() {
+                events.push(event);
+            }
+        }
+
+        while let Some(event) = parser.flush() {
+            events.push(event);
+        }
+
+        // Should have a tool call
+        assert!(
+            events.iter().any(|e| e.is_tool_call()),
+            "Expected tool call, got: {:?}",
+            events
+        );
+
+        let tool_call = events.iter().find(|e| e.is_tool_call()).unwrap();
+        let invocation = tool_call.as_tool_call().unwrap();
+        assert_eq!(invocation.name, "get_weather");
+        assert_eq!(invocation.arguments["location"], "Paris");
+    }
+
+    #[test]
+    fn test_streaming_multiple_calls() {
+        let mut parser = Olmo3Parser::new();
+
+        let input = r#"<function_calls>
+get_weather(location="Paris")
+get_time(timezone="UTC")
+</function_calls>"#;
+
+        let mut events = Vec::new();
+        for c in input.chars() {
+            let event = parser.feed(&c.to_string());
+            if !event.is_continue() {
+                events.push(event);
+            }
+        }
+
+        while let Some(event) = parser.flush() {
+            events.push(event);
+        }
+
+        // Should have two tool calls
+        let tool_calls: Vec<_> = events.iter().filter(|e| e.is_tool_call()).collect();
+        assert_eq!(
+            tool_calls.len(),
+            2,
+            "Expected 2 tool calls, got: {:?}",
+            events
+        );
+    }
+
+    #[test]
+    fn test_streaming_text_before_call() {
+        let mut parser = Olmo3Parser::new();
+
+        let input = r#"Here is the result: <function_calls>test(x=1)</function_calls>"#;
+
+        let mut events = Vec::new();
+        for c in input.chars() {
+            let event = parser.feed(&c.to_string());
+            if !event.is_continue() {
+                events.push(event);
+            }
+        }
+
+        while let Some(event) = parser.flush() {
+            events.push(event);
+        }
+
+        // Should have text and tool call
+        assert!(events.iter().any(|e| matches!(e, ParseEvent::Text(_))));
+        assert!(events.iter().any(|e| e.is_tool_call()));
+    }
+
+    #[test]
+    fn test_streaming_reset() {
+        let mut parser = Olmo3Parser::new();
+
+        // Start parsing
+        parser.feed("<function_calls>");
+
+        // Reset
+        parser.reset();
+
+        // Parse new input
+        let input = r#"<function_calls>test(x=1)</function_calls>"#;
+
+        let mut events = Vec::new();
+        for c in input.chars() {
+            let event = parser.feed(&c.to_string());
+            if !event.is_continue() {
+                events.push(event);
+            }
+        }
+
+        while let Some(event) = parser.flush() {
+            events.push(event);
+        }
+
+        assert!(events.iter().any(|e| e.is_tool_call()));
     }
 
     #[test]

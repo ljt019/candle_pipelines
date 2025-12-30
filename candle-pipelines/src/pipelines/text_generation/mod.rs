@@ -150,14 +150,10 @@
 
 pub(crate) mod base_pipeline;
 pub(crate) mod builder;
-pub(crate) mod llama_tool_parser;
 pub(crate) mod message;
-pub(crate) mod model;
-pub(crate) mod olmo3_tool_parser;
 pub(crate) mod params;
-pub(crate) mod parser;
+pub(crate) mod xml_parser;
 pub(crate) mod pipeline;
-pub(crate) mod stats;
 pub(crate) mod streaming;
 pub(crate) mod tools;
 
@@ -169,15 +165,20 @@ pub use tools::ToolFuture;
 
 // ============ Public API ============
 
-pub use crate::models::{Gemma3, Gemma3Size, Llama3, Llama3Size, Olmo3, Olmo3Size, Qwen3, Qwen3Size};
+pub use crate::models::{
+    Gemma3, Gemma3Size, Llama3_2, Llama3_2Size, Olmo3, Olmo3Size, Qwen3, Qwen3Size,
+    // Model capabilities
+    ParseEvent, Reasoning, TextGenerationModel, ToggleableReasoning, ToolCallError,
+    ToolCallInvocation, ToolCallParser, ToolCalling,
+};
 pub use builder::TextGenerationPipelineBuilder;
 pub use candle_pipelines_macros::{tool, tools};
 pub use message::Message;
-pub use model::{Reasoning, ToggleableReasoning};
 pub use params::GenerationParams;
-pub use parser::{Event, EventIterator, EventStream, TagParts, XmlParser, XmlParserBuilder};
+pub use xml_parser::{Event, EventIterator, EventStream, TagParts, XmlParser, XmlParserBuilder};
 pub use pipeline::{
     AnyTextGenerationPipeline, AnyTextGenerationPipelineExt, BoxedIterator, BoxedTokenIterator,
     Output, TextGeneration, TextGenerationPipeline, TokenIterator,
 };
-pub use tools::{ErrorStrategy, Tool, ToolCalling};
+pub use tools::{ErrorStrategy, Tool};
+pub use crate::pipelines::stats::GenerationStats;

@@ -1,4 +1,4 @@
-use super::model::SentimentAnalysisModel;
+use crate::models::capabilities::SentimentAnalysisModel;
 use super::pipeline::SentimentAnalysisPipeline;
 use crate::error::Result;
 use crate::pipelines::cache::ModelOptions;

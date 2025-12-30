@@ -1,11 +1,11 @@
 use super::params::GenerationParams;
 use super::tools::ErrorStrategy;
 use crate::error::Result;
-use crate::models::{Gemma3, Gemma3Size, Llama3, Llama3Size, Olmo3, Olmo3Size, Qwen3, Qwen3Size};
+use crate::models::{Gemma3, Gemma3Size, Llama3_2, Llama3_2Size, Olmo3, Olmo3Size, Qwen3, Qwen3Size};
 use crate::pipelines::cache::{global_cache, ModelOptions};
 use crate::pipelines::utils::{build_cache_key, DeviceRequest};
 
-use super::model::TextGenerationModel;
+use crate::models::capabilities::TextGenerationModel;
 use super::pipeline::TextGenerationPipeline;
 
 crate::pipelines::utils::impl_device_methods!(direct: TextGenerationPipelineBuilder<M: TextGenerationModel>);
@@ -167,9 +167,9 @@ impl TextGenerationPipelineBuilder<Gemma3> {
     }
 }
 
-impl TextGenerationPipelineBuilder<Llama3> {
+impl TextGenerationPipelineBuilder<Llama3_2> {
     /// Create a builder for a Llama 3.2 model.
-    pub fn llama3(size: Llama3Size) -> Self {
+    pub fn llama3_2(size: Llama3_2Size) -> Self {
         Self::new(size)
     }
 }

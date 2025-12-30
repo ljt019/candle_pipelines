@@ -1,4 +1,4 @@
-use super::model::FillMaskModel;
+use crate::models::capabilities::FillMaskModel;
 use super::pipeline::FillMaskPipeline;
 use crate::error::Result;
 use crate::pipelines::cache::ModelOptions;

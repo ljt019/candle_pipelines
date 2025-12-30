@@ -1,6 +1,6 @@
-use super::model::SentimentAnalysisModel;
+use crate::models::capabilities::SentimentAnalysisModel;
 use crate::error::{PipelineError, Result};
-use crate::pipelines::stats::PipelineStats;
+use crate::pipelines::stats::EncoderStats;
 use tokenizers::Tokenizer;
 
 // ============ Output types ============
@@ -20,7 +20,7 @@ pub struct Output {
     /// Sentiment prediction.
     pub prediction: Prediction,
     /// Execution statistics.
-    pub stats: PipelineStats,
+    pub stats: EncoderStats,
 }
 
 /// Single result in batch output.
@@ -38,7 +38,7 @@ pub struct BatchOutput {
     /// Results for each input.
     pub results: Vec<BatchResult>,
     /// Execution statistics.
-    pub stats: PipelineStats,
+    pub stats: EncoderStats,
 }
 
 // ============ Input trait for type-based dispatch ============
@@ -54,7 +54,7 @@ pub trait SentimentInput<'a> {
     fn convert_output(
         texts: Vec<&'a str>,
         predictions: Vec<Result<Prediction>>,
-        stats: PipelineStats,
+        stats: EncoderStats,
     ) -> Result<Self::Output>;
 }
 
@@ -68,7 +68,7 @@ impl<'a> SentimentInput<'a> for &'a str {
     fn convert_output(
         _texts: Vec<&'a str>,
         mut predictions: Vec<Result<Prediction>>,
-        stats: PipelineStats,
+        stats: EncoderStats,
     ) -> Result<Self::Output> {
         let prediction = predictions
             .pop()
@@ -87,7 +87,7 @@ impl<'a> SentimentInput<'a> for &'a [&'a str] {
     fn convert_output(
         texts: Vec<&'a str>,
         predictions: Vec<Result<Prediction>>,
-        stats: PipelineStats,
+        stats: EncoderStats,
     ) -> Result<Self::Output> {
         let results = texts
             .into_iter()
@@ -111,7 +111,7 @@ impl<'a, const N: usize> SentimentInput<'a> for &'a [&'a str; N] {
     fn convert_output(
         texts: Vec<&'a str>,
         predictions: Vec<Result<Prediction>>,
-        stats: PipelineStats,
+        stats: EncoderStats,
     ) -> Result<Self::Output> {
         let results = texts
             .into_iter()
@@ -179,7 +179,7 @@ impl<M: SentimentAnalysisModel> SentimentAnalysisPipeline<M> {
     /// # }
     /// ```
     pub fn run<'a, I: SentimentInput<'a>>(&self, input: I) -> Result<I::Output> {
-        let stats_builder = PipelineStats::start();
+        let stats_builder = EncoderStats::start();
         let texts = input.into_texts();
         let item_count = texts.len();
 

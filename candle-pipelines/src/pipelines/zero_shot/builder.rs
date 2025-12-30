@@ -1,6 +1,6 @@
-use super::model::ZeroShotClassificationModel;
 use super::pipeline::ZeroShotClassificationPipeline;
 use crate::error::Result;
+use crate::models::capabilities::ZeroShotClassificationModel;
 use crate::pipelines::cache::ModelOptions;
 use crate::pipelines::utils::{BasePipelineBuilder, DeviceRequest, StandardPipelineBuilder};
 

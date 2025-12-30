@@ -1,6 +1,6 @@
-use super::model::FillMaskModel;
+use crate::models::capabilities::FillMaskModel;
 use crate::error::{PipelineError, Result};
-use crate::pipelines::stats::PipelineStats;
+use crate::pipelines::stats::EncoderStats;
 use tokenizers::Tokenizer;
 
 // ============ Output types ============
@@ -20,7 +20,7 @@ pub struct Output {
     /// Predicted token.
     pub prediction: Prediction,
     /// Execution statistics.
-    pub stats: PipelineStats,
+    pub stats: EncoderStats,
 }
 
 /// Single result in batch output.
@@ -38,7 +38,7 @@ pub struct BatchOutput {
     /// Results for each input.
     pub results: Vec<BatchResult>,
     /// Execution statistics.
-    pub stats: PipelineStats,
+    pub stats: EncoderStats,
 }
 
 /// Single-text output from `run_top_k()`.
@@ -47,7 +47,7 @@ pub struct TopKOutput {
     /// Top k predictions.
     pub predictions: Vec<Prediction>,
     /// Execution statistics.
-    pub stats: PipelineStats,
+    pub stats: EncoderStats,
 }
 
 /// Single result in batch top-k output.
@@ -65,7 +65,7 @@ pub struct BatchTopKOutput {
     /// Results for each input.
     pub results: Vec<BatchTopKResult>,
     /// Execution statistics.
-    pub stats: PipelineStats,
+    pub stats: EncoderStats,
 }
 
 // ============ Input trait for type-based dispatch ============
@@ -83,13 +83,13 @@ pub trait FillMaskInput<'a> {
     fn convert_run_output(
         texts: Vec<&'a str>,
         predictions: Vec<Result<Prediction>>,
-        stats: PipelineStats,
+        stats: EncoderStats,
     ) -> Result<Self::RunOutput>;
     #[doc(hidden)]
     fn convert_top_k_output(
         texts: Vec<&'a str>,
         predictions: Vec<Result<Vec<Prediction>>>,
-        stats: PipelineStats,
+        stats: EncoderStats,
     ) -> Result<Self::TopKOutput>;
 }
 
@@ -104,7 +104,7 @@ impl<'a> FillMaskInput<'a> for &'a str {
     fn convert_run_output(
         _texts: Vec<&'a str>,
         mut predictions: Vec<Result<Prediction>>,
-        stats: PipelineStats,
+        stats: EncoderStats,
     ) -> Result<Self::RunOutput> {
         let prediction = predictions
             .pop()
@@ -115,7 +115,7 @@ impl<'a> FillMaskInput<'a> for &'a str {
     fn convert_top_k_output(
         _texts: Vec<&'a str>,
         mut predictions: Vec<Result<Vec<Prediction>>>,
-        stats: PipelineStats,
+        stats: EncoderStats,
     ) -> Result<Self::TopKOutput> {
         let preds = predictions
             .pop()
@@ -138,7 +138,7 @@ impl<'a> FillMaskInput<'a> for &'a [&'a str] {
     fn convert_run_output(
         texts: Vec<&'a str>,
         predictions: Vec<Result<Prediction>>,
-        stats: PipelineStats,
+        stats: EncoderStats,
     ) -> Result<Self::RunOutput> {
         let results = texts
             .into_iter()
@@ -154,7 +154,7 @@ impl<'a> FillMaskInput<'a> for &'a [&'a str] {
     fn convert_top_k_output(
         texts: Vec<&'a str>,
         predictions: Vec<Result<Vec<Prediction>>>,
-        stats: PipelineStats,
+        stats: EncoderStats,
     ) -> Result<Self::TopKOutput> {
         let results = texts
             .into_iter()
@@ -180,7 +180,7 @@ impl<'a, const N: usize> FillMaskInput<'a> for &'a [&'a str; N] {
     fn convert_run_output(
         texts: Vec<&'a str>,
         predictions: Vec<Result<Prediction>>,
-        stats: PipelineStats,
+        stats: EncoderStats,
     ) -> Result<Self::RunOutput> {
         let results = texts
             .into_iter()
@@ -196,7 +196,7 @@ impl<'a, const N: usize> FillMaskInput<'a> for &'a [&'a str; N] {
     fn convert_top_k_output(
         texts: Vec<&'a str>,
         predictions: Vec<Result<Vec<Prediction>>>,
-        stats: PipelineStats,
+        stats: EncoderStats,
     ) -> Result<Self::TopKOutput> {
         let results = texts
             .into_iter()
@@ -264,7 +264,7 @@ impl<M: FillMaskModel> FillMaskPipeline<M> {
     /// # }
     /// ```
     pub fn run<'a, I: FillMaskInput<'a>>(&self, input: I) -> Result<I::RunOutput> {
-        let stats_builder = PipelineStats::start();
+        let stats_builder = EncoderStats::start();
         let texts = input.into_texts();
         let item_count = texts.len();
 
@@ -308,7 +308,7 @@ impl<M: FillMaskModel> FillMaskPipeline<M> {
     /// # }
     /// ```
     pub fn run_top_k<'a, I: FillMaskInput<'a>>(&self, input: I, k: usize) -> Result<I::TopKOutput> {
-        let stats_builder = PipelineStats::start();
+        let stats_builder = EncoderStats::start();
         let texts = input.into_texts();
         let item_count = texts.len();
 
