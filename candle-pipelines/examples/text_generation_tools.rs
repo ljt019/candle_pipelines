@@ -1,6 +1,6 @@
 use candle_pipelines::error::Result;
 use candle_pipelines::text_generation::{
-    tool, tools, Message, Olmo3Size, TextGenerationPipelineBuilder,
+    tool, tools, Message, Olmo3, TextGenerationPipelineBuilder,
 };
 
 #[tool(retries = 5)]
@@ -22,7 +22,7 @@ fn main() -> Result<()> {
     println!("Building pipeline...");
 
     // Lower temperature for more reliable tool calling
-    let pipeline = TextGenerationPipelineBuilder::olmo3(Olmo3Size::Size7B)
+    let pipeline = TextGenerationPipelineBuilder::olmo3(Olmo3::Size7B)
         .max_len(8192)
         .temperature(0.3) // Lower temp = more deterministic tool calls
         .cuda(0)

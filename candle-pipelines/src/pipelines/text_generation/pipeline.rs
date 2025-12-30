@@ -1,19 +1,20 @@
 #![allow(unused_assignments)]
+#![allow(private_bounds)]
 
 use super::base_pipeline::BasePipeline;
 use super::message::Message;
 use super::params::GenerationParams;
-use crate::pipelines::stats::GenerationStats;
 use super::tools::{ErrorStrategy, GenericToolAwareIterator, Tool};
 use crate::error::PipelineError;
 use crate::error::Result;
 use crate::models::capabilities::{
-    ModelCache, Reasoning, TextGenerationModel, ToggleableReasoning, ToolCallInvocation,
-    ToolCalling,
+    ModelCache, ModelConfig, Reasoning, TextGenerationModel, ToggleableReasoning,
+    ToolCallInvocation, ToolCalling,
 };
 use crate::models::llama3_2::tool_parser::{self as llama_tool_parser, LlamaToolCall};
 use crate::models::olmo3::tool_parser::{self as olmo3_tool_parser, Olmo3ToolCall};
 use crate::models::{Gemma3, Llama3_2, Olmo3, Qwen3};
+use crate::pipelines::stats::GenerationStats;
 use regex::Regex;
 use serde::Deserialize;
 
@@ -186,10 +187,10 @@ impl<'a> From<&'a String> for Input<'a> {
 /// # Example
 ///
 /// ```rust,no_run
-/// use candle_pipelines::text_generation::{TextGenerationPipelineBuilder, Qwen3Size, Message};
+/// use candle_pipelines::text_generation::{TextGenerationPipelineBuilder, Qwen3, Message};
 ///
 /// # fn example() -> candle_pipelines::error::Result<()> {
-/// let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
+/// let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3::Size0_6B)
 ///     .build()?;
 ///
 /// // Simple prompt - returns Output { text, stats }
@@ -204,16 +205,16 @@ impl<'a> From<&'a String> for Input<'a> {
 /// let output = pipeline.run(&messages)?;
 /// # Ok(())
 /// # }
-pub struct TextGenerationPipeline<M: TextGenerationModel> {
-    pub(crate) base: BasePipeline<M>,
+pub struct TextGenerationPipeline<C: ModelConfig> {
+    pub(crate) base: BasePipeline<C>,
     tool_error_strategy: ErrorStrategy,
     tools: std::sync::RwLock<Vec<Tool>>,
     tools_enabled: std::sync::atomic::AtomicBool,
 }
 
-impl<M: TextGenerationModel + Send + Sync> TextGenerationPipeline<M> {
+impl<C: ModelConfig> TextGenerationPipeline<C> {
     pub(crate) fn new(
-        model: std::sync::Arc<M>,
+        model: std::sync::Arc<C::Model>,
         gen_params: GenerationParams,
         device: candle_core::Device,
         tool_error_strategy: ErrorStrategy,
@@ -297,7 +298,7 @@ impl<M: TextGenerationModel + Send + Sync> TextGenerationPipeline<M> {
     }
 
     /// Returns a reference to the underlying model.
-    pub fn model(&self) -> &M {
+    pub(crate) fn model(&self) -> &C::Model {
         &self.base.model
     }
 
@@ -479,10 +480,7 @@ impl<M: TextGenerationModel + Send + Sync> TextGenerationPipeline<M> {
         crate::pipelines::text_generation::streaming::Tokens<
             impl Iterator<Item = Result<String>> + Send + 'a,
         >,
-    >
-    where
-        M: 'a,
-    {
+    > {
         let tools = self.active_tools();
         let (tokens, reset_cache) = match input.into() {
             Input::Prompt(p) => {
@@ -567,16 +565,13 @@ impl<M: TextGenerationModel + Send + Sync> TextGenerationPipeline<M> {
         Ok(self.run_iter_from_tokens(tokens, prompt_tokens))
     }
 
-    fn run_iter_from_tokens<'a>(
-        &'a self,
+    fn run_iter_from_tokens(
+        &self,
         tokens: Vec<u32>,
         prompt_token_count: usize,
     ) -> crate::pipelines::text_generation::streaming::Tokens<
-        impl Iterator<Item = Result<String>> + Send + 'a,
-    >
-    where
-        M: Send + 'a,
-    {
+        impl Iterator<Item = Result<String>> + Send + '_,
+    > {
         let (stats, inner) = self
             .base
             .token_iterator_with_prompt_count(tokens, Some(prompt_token_count));
@@ -584,8 +579,11 @@ impl<M: TextGenerationModel + Send + Sync> TextGenerationPipeline<M> {
     }
 }
 
-// Tool-aware iterator requires ToolCalling trait
-impl<M: TextGenerationModel + ToolCalling + Send + Sync> TextGenerationPipeline<M> {
+// Tool-aware iterator requires ToolCalling on the model
+impl<C: ModelConfig> TextGenerationPipeline<C>
+where
+    C::Model: ToolCalling,
+{
     /// Create a generic tool-aware streaming iterator.
     ///
     /// Uses the model's associated Parser type for streaming tool detection.
@@ -593,7 +591,7 @@ impl<M: TextGenerationModel + ToolCalling + Send + Sync> TextGenerationPipeline<
     pub(crate) fn run_iter_with_tools_generic(
         &self,
         messages: Vec<Message>,
-    ) -> Result<GenericToolAwareIterator<'_, M>> {
+    ) -> Result<GenericToolAwareIterator<'_, C>> {
         let tools = self.active_tools();
         let inner = self.run_iter_from_messages_owned(messages.clone())?;
 
@@ -606,7 +604,10 @@ impl<M: TextGenerationModel + ToolCalling + Send + Sync> TextGenerationPipeline<
     }
 }
 
-impl<M: TextGenerationModel + ToggleableReasoning + Sync> TextGenerationPipeline<M> {
+impl<C: ModelConfig> TextGenerationPipeline<C>
+where
+    C::Model: ToggleableReasoning + Sync,
+{
     /// Enable or disable reasoning/thinking mode for models that support it.
     pub fn enable_reasoning(&self, enable: bool) {
         self.base.model.enable_reasoning(enable)
@@ -640,7 +641,7 @@ impl ToolResult {
     }
 }
 
-impl<M: TextGenerationModel + Send + Sync> TextGenerationPipeline<M> {
+impl<C: ModelConfig> TextGenerationPipeline<C> {
     async fn execute_tool_calls(
         &self,
         tool_calls: Vec<ToolCallInvocation>,
@@ -1504,13 +1505,13 @@ struct RawToolCall {
 #[cfg(feature = "cuda")]
 mod cache_tests {
     use crate::error::Result;
-    use crate::text_generation::{Qwen3Size, TextGenerationPipelineBuilder};
+    use crate::text_generation::{Qwen3, TextGenerationPipelineBuilder};
 
     #[tokio::test]
     async fn multiple_pipelines_work_independently() -> Result<()> {
         let mut pipelines = Vec::new();
         for _ in 0..3 {
-            let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
+            let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3::Size0_6B)
                 .cuda(0)
                 .temperature(0.7)
                 .max_len(10)

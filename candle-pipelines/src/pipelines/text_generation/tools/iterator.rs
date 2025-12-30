@@ -9,22 +9,25 @@ use std::collections::VecDeque;
 use super::Tool;
 use crate::error::Result;
 use crate::models::capabilities::{
-    ParseEvent, TextGenerationModel, ToolCallInvocation, ToolCallParser, ToolCalling,
+    ModelConfig, ParseEvent, ToolCallInvocation, ToolCallParser, ToolCalling,
 };
+use crate::pipelines::stats::GenerationStats;
 use crate::pipelines::text_generation::message::Message;
 use crate::pipelines::text_generation::pipeline::{TextGenerationPipeline, TokenIterator};
-use crate::pipelines::stats::GenerationStats;
 
 /// Generic iterator that handles tool calling during streaming generation.
 ///
-/// Works with any model that implements `TextGenerationModel` and `ToolCalling`.
+/// Works with any model config whose model implements `TextGenerationModel` and `ToolCalling`.
 /// Uses the model's `Parser` type to detect tool calls while streaming tokens in real-time.
-pub struct GenericToolAwareIterator<'a, M: TextGenerationModel + ToolCalling + Send + Sync> {
-    pipeline: &'a TextGenerationPipeline<M>,
+pub struct GenericToolAwareIterator<'a, C: ModelConfig>
+where
+    C::Model: ToolCalling + Send + Sync,
+{
+    pipeline: &'a TextGenerationPipeline<C>,
     messages: Vec<Message>,
     tools: Vec<Tool>,
     inner: Option<Box<dyn Iterator<Item = Result<String>> + Send + 'a>>,
-    parser: <M as ToolCalling>::Parser,
+    parser: <C::Model as ToolCalling>::Parser,
     response_buffer: String,
     pending_output: VecDeque<String>,
     /// Tool calls waiting to be executed
@@ -32,10 +35,13 @@ pub struct GenericToolAwareIterator<'a, M: TextGenerationModel + ToolCalling + S
     done: bool,
 }
 
-impl<'a, M: TextGenerationModel + ToolCalling + Send + Sync> GenericToolAwareIterator<'a, M> {
+impl<'a, C: ModelConfig> GenericToolAwareIterator<'a, C>
+where
+    C::Model: ToolCalling + Send + Sync,
+{
     /// Create a new tool-aware iterator.
     pub fn new(
-        pipeline: &'a TextGenerationPipeline<M>,
+        pipeline: &'a TextGenerationPipeline<C>,
         messages: Vec<Message>,
         tools: Vec<Tool>,
         inner: Box<dyn Iterator<Item = Result<String>> + Send + 'a>,
@@ -145,8 +151,9 @@ impl<'a, M: TextGenerationModel + ToolCalling + Send + Sync> GenericToolAwareIte
     }
 }
 
-impl<M: TextGenerationModel + ToolCalling + Send + Sync> Iterator
-    for GenericToolAwareIterator<'_, M>
+impl<C: ModelConfig> Iterator for GenericToolAwareIterator<'_, C>
+where
+    C::Model: ToolCalling + Send + Sync,
 {
     type Item = Result<String>;
 
@@ -217,8 +224,9 @@ impl<M: TextGenerationModel + ToolCalling + Send + Sync> Iterator
     }
 }
 
-impl<M: TextGenerationModel + ToolCalling + Send + Sync> TokenIterator
-    for GenericToolAwareIterator<'_, M>
+impl<C: ModelConfig> TokenIterator for GenericToolAwareIterator<'_, C>
+where
+    C::Model: ToolCalling + Send + Sync,
 {
     fn stats(&self) -> GenerationStats {
         GenerationStats::new()

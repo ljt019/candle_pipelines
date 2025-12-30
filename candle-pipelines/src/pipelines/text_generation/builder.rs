@@ -1,25 +1,26 @@
+#![allow(private_bounds)]
+
 use super::params::GenerationParams;
+use super::pipeline::TextGenerationPipeline;
 use super::tools::ErrorStrategy;
 use crate::error::Result;
-use crate::models::{Gemma3, Gemma3Size, Llama3_2, Llama3_2Size, Olmo3, Olmo3Size, Qwen3, Qwen3Size};
+use crate::models::capabilities::ModelConfig;
+use crate::models::{Gemma3, Llama3_2, Olmo3, Qwen3};
 use crate::pipelines::cache::{global_cache, ModelOptions};
 use crate::pipelines::utils::{build_cache_key, DeviceRequest};
 
-use crate::models::capabilities::TextGenerationModel;
-use super::pipeline::TextGenerationPipeline;
-
-crate::pipelines::utils::impl_device_methods!(direct: TextGenerationPipelineBuilder<M: TextGenerationModel>);
+crate::pipelines::utils::impl_device_methods!(direct: TextGenerationPipelineBuilder<C: ModelConfig>);
 
 /// Builder for constructing [`TextGenerationPipeline`] instances.
 ///
 /// # Example
 ///
 /// ```rust,no_run
-/// use candle_pipelines::text_generation::{TextGenerationPipelineBuilder, Qwen3Size};
+/// use candle_pipelines::text_generation::{TextGenerationPipelineBuilder, Qwen3};
 ///
 /// # fn example() -> candle_pipelines::error::Result<()> {
 /// // Use .build() for sync or .build_async() for async model loading
-/// let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
+/// let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3::Size0_6B)
 ///     .temperature(0.7)
 ///     .top_p(0.9)
 ///     .max_len(512)
@@ -28,18 +29,18 @@ crate::pipelines::utils::impl_device_methods!(direct: TextGenerationPipelineBuil
 /// # }
 /// ```
 #[derive(Clone)]
-pub struct TextGenerationPipelineBuilder<M: TextGenerationModel> {
-    model_options: M::Options,
+pub struct TextGenerationPipelineBuilder<C: ModelConfig> {
+    config: C,
     gen_params: GenerationParams,
     device_request: DeviceRequest,
     tool_error_strategy: ErrorStrategy,
 }
 
-impl<M: TextGenerationModel> TextGenerationPipelineBuilder<M> {
-    /// Create a builder with the given model options.
-    pub fn new(options: M::Options) -> Self {
+impl<C: ModelConfig> TextGenerationPipelineBuilder<C> {
+    /// Create a builder with the given model configuration.
+    pub fn new(config: C) -> Self {
         Self {
-            model_options: options,
+            config,
             gen_params: GenerationParams::default(),
             device_request: DeviceRequest::Cpu,
             tool_error_strategy: ErrorStrategy::default(),
@@ -114,18 +115,17 @@ impl<M: TextGenerationModel> TextGenerationPipelineBuilder<M> {
     /// Build the pipeline synchronously, downloading and loading the model if needed.
     ///
     /// Uses `ureq` for HTTP requests. For async builds with `reqwest`, use [`build_async`](Self::build_async).
-    pub fn build(self) -> Result<TextGenerationPipeline<M>>
+    pub fn build(self) -> Result<TextGenerationPipeline<C>>
     where
-        M: Send + Sync + 'static,
-        M::Options: ModelOptions + Clone,
+        C: ModelOptions + 'static,
     {
         let device = self.device_request.resolve()?;
-        let cache_key = build_cache_key(&self.model_options, &device);
+        let cache_key = build_cache_key(&self.config, &device);
 
-        let options = self.model_options.clone();
+        let config = self.config;
         let device_for_model = device.clone();
         let model =
-            global_cache().get_or_create(&cache_key, || M::new(options, device_for_model))?;
+            global_cache().get_or_create(&cache_key, || config.build(device_for_model))?;
 
         TextGenerationPipeline::new(model, self.gen_params, device, self.tool_error_strategy)
     }
@@ -133,19 +133,18 @@ impl<M: TextGenerationModel> TextGenerationPipelineBuilder<M> {
     /// Build the pipeline asynchronously, downloading and loading the model if needed.
     ///
     /// Uses `reqwest` for HTTP requests. For sync builds with `ureq`, use [`build`](Self::build).
-    pub async fn build_async(self) -> Result<TextGenerationPipeline<M>>
+    pub async fn build_async(self) -> Result<TextGenerationPipeline<C>>
     where
-        M: Send + Sync + 'static,
-        M::Options: ModelOptions + Clone,
+        C: ModelOptions + 'static,
     {
         let device = self.device_request.resolve()?;
-        let cache_key = build_cache_key(&self.model_options, &device);
+        let cache_key = build_cache_key(&self.config, &device);
 
-        let options = self.model_options.clone();
+        let config = self.config;
         let device_for_model = device.clone();
         let model = global_cache()
             .get_or_create_async(&cache_key, || async move {
-                M::new_async(options, device_for_model).await
+                config.build(device_for_model)
             })
             .await?;
 
@@ -155,28 +154,28 @@ impl<M: TextGenerationModel> TextGenerationPipelineBuilder<M> {
 
 impl TextGenerationPipelineBuilder<Qwen3> {
     /// Create a builder for a Qwen 3 model.
-    pub fn qwen3(size: Qwen3Size) -> Self {
-        Self::new(size)
+    pub fn qwen3(config: Qwen3) -> Self {
+        Self::new(config)
     }
 }
 
 impl TextGenerationPipelineBuilder<Gemma3> {
     /// Create a builder for a Gemma 3 model.
-    pub fn gemma3(size: Gemma3Size) -> Self {
-        Self::new(size)
+    pub fn gemma3(config: Gemma3) -> Self {
+        Self::new(config)
     }
 }
 
 impl TextGenerationPipelineBuilder<Llama3_2> {
     /// Create a builder for a Llama 3.2 model.
-    pub fn llama3_2(size: Llama3_2Size) -> Self {
-        Self::new(size)
+    pub fn llama3_2(config: Llama3_2) -> Self {
+        Self::new(config)
     }
 }
 
 impl TextGenerationPipelineBuilder<Olmo3> {
     /// Create a builder for an OLMo-3 model.
-    pub fn olmo3(size: Olmo3Size) -> Self {
-        Self::new(size)
+    pub fn olmo3(config: Olmo3) -> Self {
+        Self::new(config)
     }
 }

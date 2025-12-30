@@ -1,6 +1,6 @@
 use candle_pipelines::error::Result;
 use candle_pipelines::text_generation::{
-    tool, tools, Qwen3Size, TagParts, TextGenerationPipelineBuilder, XmlParserBuilder,
+    tool, tools, Qwen3, TagParts, TextGenerationPipelineBuilder, XmlParserBuilder,
 };
 
 #[tool]
@@ -11,7 +11,7 @@ fn get_weather(city: String) -> Result<String> {
 
 fn main() -> Result<()> {
     // Build a regular pipeline - fully sync, no async runtime needed
-    let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
+    let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3::Size0_6B)
         .max_len(1024)
         .build()?;
 

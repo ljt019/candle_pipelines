@@ -1,23 +1,26 @@
 use super::params::{apply_repeat_penalty, initialize_logits_processor, GenerationParams};
-use crate::pipelines::stats::GenerationStats;
 use crate::error::{PipelineError, Result};
-use crate::models::capabilities::TextGenerationModel;
+use crate::models::capabilities::{ModelConfig, TextGenerationModel};
+use crate::pipelines::stats::GenerationStats;
 use candle_core::Tensor;
 use std::sync::{Arc, Mutex};
 use tokenizers::Tokenizer;
 
-pub struct BasePipeline<M: TextGenerationModel> {
-    pub model: Arc<M>,
+pub struct BasePipeline<C: ModelConfig> {
+    pub model: Arc<C::Model>,
     pub model_tokenizer: Tokenizer,
-    pub cache: Arc<Mutex<M::Cache>>,
+    pub cache: Arc<Mutex<<C::Model as TextGenerationModel>::Cache>>,
     pub gen_params: Arc<Mutex<GenerationParams>>,
     pub device: candle_core::Device,
     pub last_processed_tokens: Arc<Mutex<Vec<u32>>>,
 }
 
-impl<M: TextGenerationModel + Sync> BasePipeline<M> {
+impl<C: ModelConfig> BasePipeline<C>
+where
+    C::Model: Sync,
+{
     pub fn new(
-        model: Arc<M>,
+        model: Arc<C::Model>,
         gen_params: GenerationParams,
         device: candle_core::Device,
     ) -> Result<Self> {
@@ -128,9 +131,9 @@ impl<M: TextGenerationModel + Sync> BasePipeline<M> {
         &self,
         input_tokens: Vec<u32>,
         prompt_token_count: Option<usize>,
-    ) -> (Arc<Mutex<GenerationStats>>, TokenIterator<M>)
+    ) -> (Arc<Mutex<GenerationStats>>, TokenIterator<C>)
     where
-        M: Send + Sync,
+        C::Model: Send + Sync,
     {
         let stats = Arc::new(Mutex::new(GenerationStats::new()));
         stats
@@ -153,7 +156,7 @@ impl<M: TextGenerationModel + Sync> BasePipeline<M> {
 }
 
 /// Sync iterator that generates tokens one at a time.
-pub struct TokenIterator<M: TextGenerationModel> {
+pub struct TokenIterator<C: ModelConfig> {
     // State
     initialized: bool,
     finished: bool,
@@ -170,18 +173,21 @@ pub struct TokenIterator<M: TextGenerationModel> {
 
     // Shared resources
     device: candle_core::Device,
-    model: Arc<M>,
-    cache: Arc<Mutex<M::Cache>>,
+    model: Arc<C::Model>,
+    cache: Arc<Mutex<<C::Model as TextGenerationModel>::Cache>>,
     stats: Arc<Mutex<GenerationStats>>,
 }
 
-impl<M: TextGenerationModel + Send + Sync> TokenIterator<M> {
+impl<C: ModelConfig> TokenIterator<C>
+where
+    C::Model: Send + Sync,
+{
     fn new(
         input_tokens: Vec<u32>,
         device: candle_core::Device,
-        model: Arc<M>,
+        model: Arc<C::Model>,
         tokenizer: Tokenizer,
-        cache: Arc<Mutex<M::Cache>>,
+        cache: Arc<Mutex<<C::Model as TextGenerationModel>::Cache>>,
         gen_params: Arc<Mutex<GenerationParams>>,
         stats: Arc<Mutex<GenerationStats>>,
     ) -> Self {
@@ -303,7 +309,10 @@ impl<M: TextGenerationModel + Send + Sync> TokenIterator<M> {
     }
 }
 
-impl<M: TextGenerationModel + Send + Sync> Iterator for TokenIterator<M> {
+impl<C: ModelConfig> Iterator for TokenIterator<C>
+where
+    C::Model: Send + Sync,
+{
     type Item = Result<String>;
 
     fn next(&mut self) -> Option<Self::Item> {

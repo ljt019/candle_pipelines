@@ -1,12 +1,12 @@
 use candle_pipelines::error::Result;
-use candle_pipelines::text_generation::{Message, Olmo3Size, TextGenerationPipelineBuilder};
+use candle_pipelines::text_generation::{Message, Olmo3, TextGenerationPipelineBuilder};
 
 fn main() -> Result<()> {
     println!("Building pipeline...");
 
     // Start by creating the pipeline, using the builder to configure any generation parameters.
     // Parameters are optional, defaults are set to good values for each model.
-    let pipeline = TextGenerationPipelineBuilder::olmo3(Olmo3Size::Size7B)
+    let pipeline = TextGenerationPipelineBuilder::olmo3(Olmo3::Size7B)
         .cuda(0)
         .max_len(512)
         .build()?;

@@ -9,23 +9,25 @@ use tokenizers::Tokenizer;
 use super::tool_parser::Olmo3Parser;
 use crate::error::{PipelineError, Result};
 
-/// Available OLMo-3 model sizes.
+/// OLMo-3 model configuration.
+///
+/// Use variants like `Olmo3::Size7B` to select model size.
 #[derive(Debug, Clone, Copy)]
-pub enum Olmo3Size {
+pub enum Olmo3 {
     /// 7 billion parameters.
     Size7B,
     /// 32 billion parameters.
     Size32B,
 }
 
-impl Olmo3Size {
+impl Olmo3 {
     pub(crate) fn to_id(self) -> (String, String) {
         match self {
-            Olmo3Size::Size7B => (
+            Olmo3::Size7B => (
                 "unsloth/Olmo-3-7B-Instruct-GGUF".into(),
                 "Olmo-3-7B-Instruct-Q4_K_M.gguf".into(),
             ),
-            Olmo3Size::Size32B => (
+            Olmo3::Size32B => (
                 "unsloth/Olmo-3-32B-Instruct-GGUF".into(),
                 "Olmo-3-32B-Instruct-Q4_K_M.gguf".into(),
             ),
@@ -33,33 +35,34 @@ impl Olmo3Size {
     }
 }
 
-impl std::fmt::Display for Olmo3Size {
+impl std::fmt::Display for Olmo3 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let name = match self {
-            Olmo3Size::Size7B => "olmo3-7b",
-            Olmo3Size::Size32B => "olmo3-32b",
+            Olmo3::Size7B => "olmo3-7b",
+            Olmo3::Size32B => "olmo3-32b",
         };
         write!(f, "{name}")
     }
 }
 
-impl crate::pipelines::cache::ModelOptions for Olmo3Size {
+impl crate::pipelines::cache::ModelOptions for Olmo3 {
     fn cache_key(&self) -> String {
         self.to_string()
     }
 }
 
 use crate::loaders::{GgufModelLoader, TokenizerLoader};
+use crate::models::capabilities::{ModelCache, ModelConfig, TextGenerationModel, ToolCalling};
 
-/// Only for generic annotations. Use [`TextGenerationPipelineBuilder::olmo3`](crate::text_generation::TextGenerationPipelineBuilder::olmo3).
-pub struct Olmo3 {
+/// Internal OLMo-3 model implementation.
+pub(crate) struct Olmo3Model {
     weights: Arc<candle_olmo3::ModelWeights>,
     info: ModelInfo,
     generation_config: crate::loaders::GenerationConfig,
     chat_template_env: Arc<Environment<'static>>,
 }
 
-impl Clone for Olmo3 {
+impl Clone for Olmo3Model {
     fn clone(&self) -> Self {
         Self {
             weights: self.weights.clone(),
@@ -70,7 +73,7 @@ impl Clone for Olmo3 {
     }
 }
 
-impl Olmo3 {
+impl Olmo3Model {
     fn parse_chat_template(template_path: std::path::PathBuf) -> Result<Arc<Environment<'static>>> {
         let chat_template_str = std::fs::read_to_string(&template_path).map_err(|e| {
             PipelineError::Unexpected(format!(
@@ -182,7 +185,7 @@ impl Olmo3 {
         })
     }
 
-    pub(crate) fn from_hf(device: &Device, size: Olmo3Size) -> Result<Self> {
+    pub(crate) fn from_hf(device: &Device, size: Olmo3) -> Result<Self> {
         let (repo_id, file_name) = size.to_id();
 
         let model_loader = GgufModelLoader::new(&repo_id, &file_name);
@@ -198,7 +201,7 @@ impl Olmo3 {
         Self::build_model(device, file, content, generation_config, chat_template_env)
     }
 
-    pub(crate) async fn from_hf_async(device: &Device, size: Olmo3Size) -> Result<Self> {
+    pub(crate) async fn from_hf_async(device: &Device, size: Olmo3) -> Result<Self> {
         let (repo_id, file_name) = size.to_id();
 
         let model_loader = GgufModelLoader::new(&repo_id, &file_name);
@@ -227,8 +230,6 @@ pub struct ModelInfo {
     pub _device: Device,
 }
 
-use crate::models::capabilities::{ModelCache, TextGenerationModel, ToolCalling};
-
 // Implement ModelCache for the external cache type
 impl ModelCache for candle_olmo3::Cache {
     fn reset(&mut self) {
@@ -240,9 +241,17 @@ impl ModelCache for candle_olmo3::Cache {
     }
 }
 
-impl TextGenerationModel for Olmo3 {
+impl ModelConfig for Olmo3 {
+    type Model = Olmo3Model;
+
+    fn build(self, device: Device) -> Result<Self::Model> {
+        Olmo3Model::from_hf(&device, self)
+    }
+}
+
+impl TextGenerationModel for Olmo3Model {
     type Cache = candle_olmo3::Cache;
-    type Options = Olmo3Size;
+    type Options = Olmo3;
 
     fn get_eos_token(&self) -> Option<u32> {
         self.generation_config
@@ -265,15 +274,15 @@ impl TextGenerationModel for Olmo3 {
     }
 
     fn new(options: Self::Options, device: candle_core::Device) -> Result<Self> {
-        Olmo3::from_hf(&device, options)
+        Olmo3Model::from_hf(&device, options)
     }
 
     async fn new_async(options: Self::Options, device: candle_core::Device) -> Result<Self> {
-        Olmo3::from_hf_async(&device, options).await
+        Olmo3Model::from_hf_async(&device, options).await
     }
 
     fn get_tokenizer(&self) -> Result<tokenizers::Tokenizer> {
-        Olmo3::get_tokenizer(self)
+        Olmo3Model::get_tokenizer(self)
     }
 
     fn apply_chat_template(
@@ -364,7 +373,7 @@ impl TextGenerationModel for Olmo3 {
     }
 }
 
-impl ToolCalling for Olmo3 {
+impl ToolCalling for Olmo3Model {
     type Parser = Olmo3Parser;
 
     fn new_parser(&self) -> Self::Parser {

@@ -210,6 +210,18 @@ pub trait FillMaskModel {
 
 // ============ Text Generation ============
 
+/// Configuration trait that maps a model config enum to its implementation.
+///
+/// This allows users to work with simple enums like `Qwen3::Size0_6B` while
+/// hiding the actual model implementation details.
+pub(crate) trait ModelConfig: Copy + Clone + Send + Sync + 'static {
+    /// The internal model type that implements TextGenerationModel.
+    type Model: TextGenerationModel<Options = Self> + Send + Sync;
+
+    /// Build the model with this configuration.
+    fn build(self, device: Device) -> Result<Self::Model>;
+}
+
 /// Core trait for text generation models.
 #[allow(async_fn_in_trait)]
 pub trait TextGenerationModel {

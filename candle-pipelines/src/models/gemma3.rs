@@ -11,11 +11,13 @@ use tokenizers::Tokenizer;
 use crate::error::{PipelineError, Result};
 use crate::loaders::GenerationConfig;
 use crate::loaders::{GenerationConfigLoader, GgufModelLoader, HfLoader, TokenizerLoader};
-use crate::models::capabilities::{ModelCache, TextGenerationModel};
+use crate::models::capabilities::{ModelCache, ModelConfig, TextGenerationModel};
 
-/// Available Gemma 3 model sizes.
+/// Gemma 3 model configuration.
+///
+/// Use variants like `Gemma3::Size1B` to select model size.
 #[derive(Debug, Clone, Copy)]
-pub enum Gemma3Size {
+pub enum Gemma3 {
     /// 1 billion parameters.
     Size1B,
     /// 4 billion parameters.
@@ -26,48 +28,48 @@ pub enum Gemma3Size {
     Size27B,
 }
 
-impl Gemma3Size {
+impl Gemma3 {
     pub(crate) fn weight_repo_id(&self) -> &str {
         match self {
-            Gemma3Size::Size1B => "unsloth/gemma-3-1b-it-GGUF",
-            Gemma3Size::Size4B => "unsloth/gemma-3-4b-it-GGUF",
-            Gemma3Size::Size12B => "unsloth/gemma-3-12b-it-GGUF",
-            Gemma3Size::Size27B => "unsloth/gemma-3-27b-it-GGUF",
+            Gemma3::Size1B => "unsloth/gemma-3-1b-it-GGUF",
+            Gemma3::Size4B => "unsloth/gemma-3-4b-it-GGUF",
+            Gemma3::Size12B => "unsloth/gemma-3-12b-it-GGUF",
+            Gemma3::Size27B => "unsloth/gemma-3-27b-it-GGUF",
         }
     }
 
     pub(crate) fn weight_filename(&self) -> &str {
         match self {
-            Gemma3Size::Size1B => "gemma-3-1b-it-Q4_K_M.gguf",
-            Gemma3Size::Size4B => "gemma-3-4b-it-Q4_K_M.gguf",
-            Gemma3Size::Size12B => "gemma-3-12b-it-Q4_K_M.gguf",
-            Gemma3Size::Size27B => "gemma-3-27b-it-Q4_K_M.gguf",
+            Gemma3::Size1B => "gemma-3-1b-it-Q4_K_M.gguf",
+            Gemma3::Size4B => "gemma-3-4b-it-Q4_K_M.gguf",
+            Gemma3::Size12B => "gemma-3-12b-it-Q4_K_M.gguf",
+            Gemma3::Size27B => "gemma-3-27b-it-Q4_K_M.gguf",
         }
     }
 
     pub(crate) fn config_repo_id(&self) -> &str {
         match self {
-            Gemma3Size::Size1B => "google/gemma-3-1b-it",
-            Gemma3Size::Size4B => "google/gemma-3-4b-it",
-            Gemma3Size::Size12B => "google/gemma-3-12b-it",
-            Gemma3Size::Size27B => "google/gemma-3-27b-it",
+            Gemma3::Size1B => "google/gemma-3-1b-it",
+            Gemma3::Size4B => "google/gemma-3-4b-it",
+            Gemma3::Size12B => "google/gemma-3-12b-it",
+            Gemma3::Size27B => "google/gemma-3-27b-it",
         }
     }
 }
 
-impl std::fmt::Display for Gemma3Size {
+impl std::fmt::Display for Gemma3 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let name = match self {
-            Gemma3Size::Size1B => "gemma3-1b",
-            Gemma3Size::Size4B => "gemma3-4b",
-            Gemma3Size::Size12B => "gemma3-12b",
-            Gemma3Size::Size27B => "gemma3-27b",
+            Gemma3::Size1B => "gemma3-1b",
+            Gemma3::Size4B => "gemma3-4b",
+            Gemma3::Size12B => "gemma3-12b",
+            Gemma3::Size27B => "gemma3-27b",
         };
         write!(f, "{name}")
     }
 }
 
-impl crate::pipelines::cache::ModelOptions for Gemma3Size {
+impl crate::pipelines::cache::ModelOptions for Gemma3 {
     fn cache_key(&self) -> String {
         self.to_string()
     }
@@ -83,9 +85,9 @@ pub struct ModelInfo {
     pub target_device: Option<String>,
 }
 
-/// Only for generic annotations. Use [`TextGenerationPipelineBuilder::gemma3`](crate::text_generation::TextGenerationPipelineBuilder::gemma3).
+/// Internal Gemma3 model implementation.
 #[derive(Clone)]
-pub struct Gemma3 {
+pub(crate) struct Gemma3Model {
     weights: Arc<candle_gemma3::ModelWeights>,
     info: ModelInfo,
     tokenizer_repo_id: String,
@@ -93,7 +95,7 @@ pub struct Gemma3 {
     chat_template_env: Arc<Environment<'static>>,
 }
 
-impl Gemma3 {
+impl Gemma3Model {
     fn parse_metadata(content: &gguf_file::Content, device: &Device) -> Result<ModelInfo> {
         let num_layers = content
             .metadata
@@ -215,7 +217,7 @@ impl Gemma3 {
         })
     }
 
-    pub(crate) fn from_hf(device: &Device, size: Gemma3Size) -> Result<Self> {
+    pub(crate) fn from_hf(device: &Device, size: Gemma3) -> Result<Self> {
         let loader = GgufModelLoader::new(size.weight_repo_id(), size.weight_filename());
         let (file, content) = loader.load()?;
 
@@ -235,7 +237,7 @@ impl Gemma3 {
         )
     }
 
-    pub(crate) async fn from_hf_async(device: &Device, size: Gemma3Size) -> Result<Self> {
+    pub(crate) async fn from_hf_async(device: &Device, size: Gemma3) -> Result<Self> {
         let loader = GgufModelLoader::new(size.weight_repo_id(), size.weight_filename());
         let (file, content) = loader.load_async().await?;
 
@@ -274,20 +276,28 @@ impl ModelCache for candle_gemma3::Cache {
     }
 }
 
-impl TextGenerationModel for Gemma3 {
-    type Options = Gemma3Size;
+impl ModelConfig for Gemma3 {
+    type Model = Gemma3Model;
+
+    fn build(self, device: Device) -> Result<Self::Model> {
+        Gemma3Model::from_hf(&device, self)
+    }
+}
+
+impl TextGenerationModel for Gemma3Model {
+    type Options = Gemma3;
     type Cache = candle_gemma3::Cache;
 
     fn new(options: Self::Options, device: Device) -> Result<Self> {
-        Gemma3::from_hf(&device, options)
+        Gemma3Model::from_hf(&device, options)
     }
 
     async fn new_async(options: Self::Options, device: Device) -> Result<Self> {
-        Gemma3::from_hf_async(&device, options).await
+        Gemma3Model::from_hf_async(&device, options).await
     }
 
     fn get_tokenizer(&self) -> Result<Tokenizer> {
-        Gemma3::get_tokenizer(self)
+        Gemma3Model::get_tokenizer(self)
     }
 
     fn apply_chat_template(
