@@ -165,17 +165,12 @@ pub use tools::ToolFuture;
 
 // ============ Public API ============
 
-pub use crate::models::{
-    Gemma3, Gemma3Size, Llama3_2, Llama3_2Size, Olmo3, Olmo3Size, Qwen3, Qwen3Size,
-    // Model capabilities
-    ParseEvent, Reasoning, TextGenerationModel, ToggleableReasoning, ToolCallError,
-    ToolCallInvocation, ToolCallParser, ToolCalling,
-};
+pub use crate::models::{Gemma3, Gemma3Size, Llama3_2, Llama3_2Size, Olmo3, Olmo3Size, Qwen3, Qwen3Size};
 pub use builder::TextGenerationPipelineBuilder;
 pub use candle_pipelines_macros::{tool, tools};
 pub use message::Message;
 pub use params::GenerationParams;
-pub use xml_parser::{Event, EventIterator, EventStream, TagParts, XmlParser, XmlParserBuilder};
+pub use xml_parser::{Event, TagParts, XmlParser, XmlParserBuilder};
 pub use pipeline::{
     AnyTextGenerationPipeline, AnyTextGenerationPipelineExt, BoxedIterator, BoxedTokenIterator,
     Output, TextGeneration, TextGenerationPipeline, TokenIterator,

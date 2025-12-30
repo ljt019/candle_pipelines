@@ -355,6 +355,7 @@ pub enum ParseEvent {
     Error(String),
 }
 
+#[allow(dead_code)]
 impl ParseEvent {
     /// Create a successful tool call event.
     pub fn tool_call(name: impl Into<String>, arguments: Value) -> Self {
