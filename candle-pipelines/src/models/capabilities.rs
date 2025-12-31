@@ -268,12 +268,8 @@ pub trait TextGenerationModel {
     /// Run forward pass with external cache.
     fn forward(&self, input: &Tensor, cache: &mut Self::Cache) -> candle_core::Result<Tensor>;
 
-    /// Get default generation parameters for this model.
-    fn default_generation_params(
-        &self,
-    ) -> crate::pipelines::text_generation::params::GenerationParams {
-        crate::pipelines::text_generation::params::GenerationParams::default()
-    }
+    /// Get the model's generation config (from HuggingFace).
+    fn get_generation_config(&self) -> &crate::loaders::GenerationConfig;
 }
 
 // ============ Reasoning capability ============

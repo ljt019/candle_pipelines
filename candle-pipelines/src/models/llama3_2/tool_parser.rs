@@ -60,55 +60,10 @@ pub struct LlamaToolParser {
     pending_events: VecDeque<ParseEvent>,
 }
 
-/// Legacy event type for backwards compatibility with existing pipeline code.
-/// Will be removed once pipeline.rs is refactored to use ToolCallParser trait.
-#[derive(Debug, Clone)]
-pub enum LegacyParseEvent {
-    /// Regular content to stream to user.
-    Content(String),
-    /// A complete tool call was detected.
-    ToolCall(LlamaToolCall),
-    /// Buffered content wasn't a tool call, flush as regular content.
-    Flush(String),
-}
-
 impl LlamaToolParser {
     /// Create a new parser.
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Process a token and return any resulting event (legacy API).
-    ///
-    /// **Deprecated**: Use the `ToolCallParser::feed` trait method instead.
-    /// This method is kept for backwards compatibility with pipeline.rs.
-    pub fn process_token(&mut self, token: &str) -> Option<LegacyParseEvent> {
-        self.process_token_internal(token).map(|e| match e {
-            InternalEvent::Content(s) => LegacyParseEvent::Content(s),
-            InternalEvent::ToolCall(c) => LegacyParseEvent::ToolCall(c),
-            InternalEvent::Flush(s) => LegacyParseEvent::Flush(s),
-        })
-    }
-
-    /// Finalize parsing when generation ends (legacy API).
-    ///
-    /// **Deprecated**: Use the `ToolCallParser::flush` trait method instead.
-    pub fn finalize(&mut self) -> Option<LegacyParseEvent> {
-        self.finalize_internal().map(|e| match e {
-            InternalEvent::Content(s) => LegacyParseEvent::Content(s),
-            InternalEvent::ToolCall(c) => LegacyParseEvent::ToolCall(c),
-            InternalEvent::Flush(s) => LegacyParseEvent::Flush(s),
-        })
-    }
-
-    /// Reset parser state (legacy API).
-    ///
-    /// **Deprecated**: Use the `ToolCallParser::reset` trait method instead.
-    pub fn reset_legacy(&mut self) {
-        self.state = ParseState::Streaming;
-        self.buffer.clear();
-        self.brace_depth = 0;
-        self.pending_events.clear();
     }
 
     /// Process a token and return any resulting internal event.
@@ -229,9 +184,7 @@ impl LlamaToolParser {
     fn convert_event(&self, event: InternalEvent) -> ParseEvent {
         match event {
             InternalEvent::Content(s) => ParseEvent::text(s),
-            InternalEvent::ToolCall(call) => {
-                ParseEvent::ToolCall(Ok(call.into_invocation()))
-            }
+            InternalEvent::ToolCall(call) => ParseEvent::ToolCall(Ok(call.into_invocation())),
             InternalEvent::Flush(s) => {
                 // Flushed content that wasn't a valid tool call - emit as text
                 ParseEvent::text(s)
@@ -250,7 +203,9 @@ impl ToolCallParser for LlamaToolParser {
         }
 
         // Return first pending event, or Continue
-        self.pending_events.pop_front().unwrap_or(ParseEvent::Continue)
+        self.pending_events
+            .pop_front()
+            .unwrap_or(ParseEvent::Continue)
     }
 
     fn flush(&mut self) -> Option<ParseEvent> {
@@ -365,7 +320,15 @@ mod tests {
 
         // Simulate streaming tokens
         let tokens = vec![
-            "{", "\"name\"", ": ", "\"test\"", ", ", "\"parameters\"", ": ", "{}", "}",
+            "{",
+            "\"name\"",
+            ": ",
+            "\"test\"",
+            ", ",
+            "\"parameters\"",
+            ": ",
+            "{}",
+            "}",
         ];
 
         let mut events = Vec::new();
@@ -415,7 +378,9 @@ mod tests {
 
         // Should have a text event (flush), not a tool call
         assert!(
-            events.iter().any(|e| matches!(e, ParseEvent::Text(s) if s.contains("foo"))),
+            events
+                .iter()
+                .any(|e| matches!(e, ParseEvent::Text(s) if s.contains("foo"))),
             "Expected Text event containing 'foo', got: {:?}",
             events
         );

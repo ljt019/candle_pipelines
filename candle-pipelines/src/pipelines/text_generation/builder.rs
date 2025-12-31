@@ -1,10 +1,10 @@
 #![allow(private_bounds)]
 
-use super::params::GenerationParams;
+use super::params::{GenerationOverrides, GenerationParams};
 use super::pipeline::TextGenerationPipeline;
 use super::tools::ErrorStrategy;
 use crate::error::Result;
-use crate::models::capabilities::ModelConfig;
+use crate::models::capabilities::{ModelConfig, TextGenerationModel};
 use crate::models::{Gemma3, Llama3_2, Olmo3, Qwen3};
 use crate::pipelines::cache::{global_cache, ModelOptions};
 use crate::pipelines::utils::{build_cache_key, DeviceRequest};
@@ -28,10 +28,10 @@ crate::pipelines::utils::impl_device_methods!(direct: TextGenerationPipelineBuil
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct TextGenerationPipelineBuilder<C: ModelConfig> {
     config: C,
-    gen_params: GenerationParams,
+    overrides: GenerationOverrides,
     device_request: DeviceRequest,
     tool_error_strategy: ErrorStrategy,
 }
@@ -41,7 +41,7 @@ impl<C: ModelConfig> TextGenerationPipelineBuilder<C> {
     pub fn new(config: C) -> Self {
         Self {
             config,
-            gen_params: GenerationParams::default(),
+            overrides: GenerationOverrides::default(),
             device_request: DeviceRequest::Cpu,
             tool_error_strategy: ErrorStrategy::default(),
         }
@@ -55,13 +55,13 @@ impl<C: ModelConfig> TextGenerationPipelineBuilder<C> {
 
     /// Set sampling temperature. 0.0 = deterministic, higher = more random.
     pub fn temperature(mut self, temperature: f64) -> Self {
-        self.gen_params.temperature = temperature;
+        self.overrides.temperature = Some(temperature);
         self
     }
 
     /// Set penalty for repeating tokens. 1.0 = no penalty.
     pub fn repeat_penalty(mut self, repeat_penalty: f32) -> Self {
-        self.gen_params.repeat_penalty = repeat_penalty;
+        self.overrides.repeat_penalty = Some(repeat_penalty);
         self
     }
 
@@ -72,43 +72,43 @@ impl<C: ModelConfig> TextGenerationPipelineBuilder<C> {
 
     /// Set how many recent tokens to consider for repeat penalty.
     pub fn repeat_last_n(mut self, repeat_last_n: usize) -> Self {
-        self.gen_params.repeat_last_n = repeat_last_n;
+        self.overrides.repeat_last_n = Some(repeat_last_n);
         self
     }
 
     /// Set random seed for reproducible generation.
     pub fn seed(mut self, seed: u64) -> Self {
-        self.gen_params.seed = seed;
+        self.overrides.seed = Some(seed);
         self
     }
 
     /// Set maximum tokens to generate per turn.
     pub fn max_len(mut self, max_len: usize) -> Self {
-        self.gen_params.max_len = max_len;
+        self.overrides.max_len = Some(max_len);
         self
     }
 
     /// Alias for [`max_len`](Self::max_len).
     pub fn max_new_tokens(mut self, max_new_tokens: usize) -> Self {
-        self.gen_params.max_len = max_new_tokens;
+        self.overrides.max_len = Some(max_new_tokens);
         self
     }
 
     /// Set nucleus sampling threshold (0.0-1.0).
     pub fn top_p(mut self, top_p: f64) -> Self {
-        self.gen_params.top_p = Some(top_p.clamp(0.0, 1.0));
+        self.overrides.top_p = Some(top_p.clamp(0.0, 1.0));
         self
     }
 
     /// Only sample from the top k most likely tokens.
     pub fn top_k(mut self, top_k: usize) -> Self {
-        self.gen_params.top_k = Some(top_k);
+        self.overrides.top_k = Some(top_k);
         self
     }
 
     /// Filter tokens below min_p * max_probability (0.0-1.0).
     pub fn min_p(mut self, min_p: f64) -> Self {
-        self.gen_params.min_p = Some(min_p.clamp(0.0, 1.0));
+        self.overrides.min_p = Some(min_p.clamp(0.0, 1.0));
         self
     }
 
@@ -118,16 +118,18 @@ impl<C: ModelConfig> TextGenerationPipelineBuilder<C> {
     pub fn build(self) -> Result<TextGenerationPipeline<C>>
     where
         C: ModelOptions + 'static,
+        C::Model: TextGenerationModel,
     {
         let device = self.device_request.resolve()?;
         let cache_key = build_cache_key(&self.config, &device);
 
         let config = self.config;
         let device_for_model = device.clone();
-        let model =
-            global_cache().get_or_create(&cache_key, || config.build(device_for_model))?;
+        let model = global_cache().get_or_create(&cache_key, || config.build(device_for_model))?;
 
-        TextGenerationPipeline::new(model, self.gen_params, device, self.tool_error_strategy)
+        let gen_params = GenerationParams::resolve(model.get_generation_config(), &self.overrides)?;
+
+        TextGenerationPipeline::new(model, gen_params, device, self.tool_error_strategy)
     }
 
     /// Build the pipeline asynchronously, downloading and loading the model if needed.
@@ -136,6 +138,7 @@ impl<C: ModelConfig> TextGenerationPipelineBuilder<C> {
     pub async fn build_async(self) -> Result<TextGenerationPipeline<C>>
     where
         C: ModelOptions + 'static,
+        C::Model: TextGenerationModel,
     {
         let device = self.device_request.resolve()?;
         let cache_key = build_cache_key(&self.config, &device);
@@ -143,12 +146,12 @@ impl<C: ModelConfig> TextGenerationPipelineBuilder<C> {
         let config = self.config;
         let device_for_model = device.clone();
         let model = global_cache()
-            .get_or_create_async(&cache_key, || async move {
-                config.build(device_for_model)
-            })
+            .get_or_create_async(&cache_key, || async move { config.build(device_for_model) })
             .await?;
 
-        TextGenerationPipeline::new(model, self.gen_params, device, self.tool_error_strategy)
+        let gen_params = GenerationParams::resolve(model.get_generation_config(), &self.overrides)?;
+
+        TextGenerationPipeline::new(model, gen_params, device, self.tool_error_strategy)
     }
 }
 

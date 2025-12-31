@@ -18,7 +18,7 @@ fn main() -> Result<()> {
     pipeline.register_tools(tools![get_weather]);
 
     // Create XML parser for specific tags
-    let parser = XmlParserBuilder::new()
+    let mut parser = XmlParserBuilder::new()
         .register_tag("think")
         .register_tag("tool_result")
         .register_tag("tool_call")

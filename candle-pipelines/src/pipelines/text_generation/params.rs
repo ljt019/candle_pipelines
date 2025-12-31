@@ -1,9 +1,27 @@
 use candle_core::Tensor;
 use candle_transformers::generation::{LogitsProcessor as CandleLogitsProcessor, Sampling};
 
+use crate::error::{PipelineError, Result};
+use crate::loaders::GenerationConfig;
+
 pub use candle_transformers::utils::apply_repeat_penalty;
 
-/// Parameters controlling text generation sampling behavior.
+/// User overrides for generation parameters.
+/// All fields are optional - only set fields will override model defaults.
+#[derive(Debug, Clone, Default)]
+pub struct GenerationOverrides {
+    pub temperature: Option<f64>,
+    pub repeat_penalty: Option<f32>,
+    pub repeat_last_n: Option<usize>,
+    pub seed: Option<u64>,
+    pub max_len: Option<usize>,
+    pub top_p: Option<f64>,
+    pub top_k: Option<usize>,
+    pub min_p: Option<f64>,
+}
+
+/// Resolved parameters controlling text generation sampling behavior.
+/// All required fields are guaranteed to have values.
 #[derive(Debug, Clone)]
 pub struct GenerationParams {
     /// Randomness of sampling. 0.0 = deterministic, higher = more random.
@@ -24,18 +42,58 @@ pub struct GenerationParams {
     pub min_p: Option<f64>,
 }
 
-impl Default for GenerationParams {
-    fn default() -> Self {
-        Self {
-            temperature: 0.7,
-            repeat_penalty: 1.1,
-            repeat_last_n: 64,
-            seed: rand::random(),
-            max_len: 2048,
-            top_p: Some(0.9),
-            top_k: Some(40),
-            min_p: None,
-        }
+impl GenerationParams {
+    /// Resolve generation params from model config + user overrides.
+    /// Returns error if required field is missing from both.
+    pub fn resolve(config: &GenerationConfig, overrides: &GenerationOverrides) -> Result<Self> {
+        let temperature = overrides
+            .temperature
+            .or(config.temperature)
+            .ok_or_else(|| {
+                PipelineError::Unexpected(
+                    "Missing 'temperature': set via .temperature() or ensure model's generation_config.json has it".into()
+                )
+            })?;
+
+        let repeat_penalty = overrides
+            .repeat_penalty
+            .or(config.repeat_penalty)
+            .ok_or_else(|| {
+                PipelineError::Unexpected(
+                    "Missing 'repeat_penalty': set via .repeat_penalty() or ensure model's generation_config.json has it".into()
+                )
+            })?;
+
+        let repeat_last_n = overrides
+            .repeat_last_n
+            .or(config.repeat_last_n)
+            .ok_or_else(|| {
+                PipelineError::Unexpected(
+                    "Missing 'repeat_last_n': set via .repeat_last_n() or ensure model's generation_config.json has it".into()
+                )
+            })?;
+
+        // These have sensible universal defaults - seed is random, max_len is context-dependent
+        let seed = overrides.seed.unwrap_or_else(rand::random);
+        let max_len = overrides.max_len.unwrap_or(2048);
+
+        // Optional params - None is valid (means "don't apply this filter")
+        let top_p = overrides.top_p.or(config.top_p);
+        let top_k = overrides
+            .top_k
+            .or(config.top_k.map(|k| k as usize));
+        let min_p = overrides.min_p.or(config.min_p);
+
+        Ok(Self {
+            temperature,
+            repeat_penalty,
+            repeat_last_n,
+            seed,
+            max_len,
+            top_p,
+            top_k,
+            min_p,
+        })
     }
 }
 

@@ -829,6 +829,25 @@ mod tests {
     }
 
     #[test]
+    fn test_unicode_tag_parsing() {
+        let mut parser = XmlParserBuilder::new().register_tag("think").build();
+        let text = "<think>你好世界</think>普通内容";
+        let events = parser.parse(&text);
+        let expected = &[
+            (Some("think"), TagParts::Start, "<think>"),
+            (Some("think"), TagParts::Content, "你好世界"),
+            (Some("think"), TagParts::End, "<think>你好世界</think>"),
+            (None, TagParts::Content, "普通内容"),
+        ];
+        assert_eq!(events.len(), expected.len());
+        for (event, (tag, part, content)) in events.iter().zip(expected) {
+            assert_eq!(event.tag(), *tag);
+            assert_eq!(event.part(), *part);
+            assert_eq!(event.get_content(), *content);
+        }
+    }
+
+    #[test]
     fn test_plain_text_before_and_after_single_tag_parsing() {
         let mut parser = XmlParserBuilder::new().register_tag("think").build();
 
