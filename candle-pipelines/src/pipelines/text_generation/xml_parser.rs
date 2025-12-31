@@ -420,9 +420,39 @@ impl XmlParser {
                                 content.push_str(tag_content);
                             }
                         }
+                    } else {
+                        // No open tags - closing tag becomes plain content
+                        state.content_buffer.push_str(tag_content);
                     }
-                    // If no open tags, closing tag is just ignored (or could be added to content_buffer)
-                } else if !tag_content.ends_with("/>") {
+                } else if tag_content.ends_with("/>") {
+                    // Self-closing tag
+                    if state.open_tags.is_empty() {
+                        // Emit any buffered plain content first
+                        if !state.content_buffer.is_empty() {
+                            let content = &state.content_buffer[state.emitted_top_len..];
+                            if !content.is_empty() {
+                                events.push(Event::content(content));
+                            }
+                            state.emitted_top_len = state.content_buffer.len();
+                        }
+
+                        let attrs = self.parse_attributes(tag_content);
+                        if let Some(tag_handle) = self.tag_map.get(&tag_name) {
+                            // Emit start + end for self-closing (no content event)
+                            events.push(Event::start(
+                                tag_handle.clone(),
+                                format!("<{}>", tag_name),
+                                attrs.clone(),
+                            ));
+                            events.push(Event::end(tag_handle.clone(), tag_content, attrs));
+                        }
+                    } else {
+                        // Inside another tag - treat as content (greedy)
+                        if let Some((_, ref mut content, _)) = state.open_tags.last_mut() {
+                            content.push_str(tag_content);
+                        }
+                    }
+                } else {
                     // Opening tag
                     if state.open_tags.is_empty() {
                         // Only open new tags at top level (greedy parsing)
@@ -553,9 +583,9 @@ impl XmlParser {
                         attr_value.push(c);
                     }
                 } else {
-                    // Unquoted value - read until whitespace
+                    // Unquoted value - read until whitespace or /
                     while let Some(&next) = chars.peek() {
-                        if next.is_whitespace() {
+                        if next.is_whitespace() || next == '/' {
                             break;
                         }
                         attr_value.push(chars.next().unwrap());
@@ -710,13 +740,35 @@ mod tests {
 
     #[test]
     fn test_plain_text_only_parsing() {
-        let parser = XmlParserBuilder::new().build();
+        let parser = XmlParserBuilder::new().register_tag("think").build();
 
         let text = "Regular content";
         let events = parser.parse(&text);
 
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].tag(), None);
+        assert_eq!(events[0].get_content(), text);
+    }
+
+    #[test]
+    fn test_empty_parsing() {
+        let parser = XmlParserBuilder::new().register_tag("think").build();
+
+        let text = "";
+        let events = parser.parse(&text);
+
+        assert_eq!(events.len(), 0);
+    }
+
+    #[test]
+    fn test_whitespace_parsing() {
+        let parser = XmlParserBuilder::new().register_tag("think").build();
+
+        let text = "  ";
+        let events = parser.parse(&text);
+
+        assert!(events.len() == 1);
+        assert!(events[0].tag() == None);
         assert_eq!(events[0].get_content(), text);
     }
 
@@ -905,6 +957,65 @@ mod tests {
     }
 
     #[test]
+    fn test_greedy_multiple_same_tag_parsing() {
+        let parser = XmlParserBuilder::new().register_tag("think").build();
+
+        let text = "<think>Hello world<think>Regular content</think></think>";
+        let events = parser.parse(&text);
+
+        let expected = &[
+            (Some("think"), TagParts::Start, "<think>"),
+            (
+                Some("think"),
+                TagParts::Content,
+                "Hello world<think>Regular content",
+            ),
+            (
+                Some("think"),
+                TagParts::End,
+                "<think>Hello world<think>Regular content</think>",
+            ),
+            (None, TagParts::Content, "</think>"),
+        ];
+
+        assert_eq!(events.len(), expected.len());
+        for (event, (tag, part, content)) in events.iter().zip(expected) {
+            assert_eq!(event.tag(), *tag);
+            assert_eq!(event.part(), *part);
+            assert_eq!(event.get_content(), *content);
+        }
+    }
+
+    #[test]
+    fn test_greedy_multiple_same_open_tag_parsing() {
+        let parser = XmlParserBuilder::new().register_tag("think").build();
+
+        let text = "<think>Hello world<think> Regular content</think>";
+        let events = parser.parse(&text);
+
+        let expected = &[
+            (Some("think"), TagParts::Start, "<think>"),
+            (
+                Some("think"),
+                TagParts::Content,
+                "Hello world<think> Regular content",
+            ),
+            (
+                Some("think"),
+                TagParts::End,
+                "<think>Hello world<think> Regular content</think>",
+            ),
+        ];
+
+        assert_eq!(events.len(), expected.len());
+        for (event, (tag, part, content)) in events.iter().zip(expected) {
+            assert_eq!(event.tag(), *tag);
+            assert_eq!(event.part(), *part);
+            assert_eq!(event.get_content(), *content);
+        }
+    }
+
+    #[test]
     fn test_mismatched_close_parsing() {
         let parser = XmlParserBuilder::new().register_tag("think").build();
 
@@ -953,6 +1064,29 @@ mod tests {
     }
 
     #[test]
+    fn test_self_closing_tag_parsing() {
+        let parser = XmlParserBuilder::new().register_tag("think").build();
+
+        let text = "<think/>Regular Content<think />";
+        let events = parser.parse(&text);
+
+        let expected = &[
+            (Some("think"), TagParts::Start, "<think>"),
+            (Some("think"), TagParts::End, "<think/>"),
+            (None, TagParts::Content, "Regular Content"),
+            (Some("think"), TagParts::Start, "<think>"),
+            (Some("think"), TagParts::End, "<think />"),
+        ];
+
+        assert_eq!(events.len(), expected.len());
+        for (event, (tag, part, content)) in events.iter().zip(expected) {
+            assert_eq!(event.tag(), *tag);
+            assert_eq!(event.part(), *part);
+            assert_eq!(event.get_content(), *content);
+        }
+    }
+
+    #[test]
     fn test_multiple_same_tag_parsing() {
         let parser = XmlParserBuilder::new().register_tag("think").build();
 
@@ -982,6 +1116,32 @@ mod tests {
     }
 
     #[test]
+    fn test_reset_isolation() {
+        let parser = XmlParserBuilder::new()
+            .register_tag("think")
+            .register_tag("answer")
+            .build();
+
+        let text = "Before <think>thinking here</think> middle <answer>42</answer> after";
+
+        let first_parse = parser.parse(&text);
+        let second_parse = parser.parse(&text);
+
+        assert_eq!(
+            first_parse.len(),
+            second_parse.len(),
+            "parse() should return same number of events on repeated calls"
+        );
+
+        for (first, second) in first_parse.iter().zip(second_parse.iter()) {
+            assert_eq!(first.tag(), second.tag());
+            assert_eq!(first.part(), second.part());
+            assert_eq!(first.get_content(), second.get_content());
+            assert_eq!(first.attributes(), second.attributes());
+        }
+    }
+
+    #[test]
     fn test_no_attributes_returns_none() {
         let parser = XmlParserBuilder::new().register_tag("think").build();
 
@@ -1001,6 +1161,22 @@ mod tests {
 
         let text = "<function_call name=get_weather>Tokyo</function_call>";
 
+        let events = parser.parse(&text);
+
+        assert_eq!(events[0].tag(), Some("function_call"));
+        assert_eq!(
+            events[0].attributes().unwrap().get("name"),
+            Some(&"get_weather".to_string())
+        );
+    }
+
+    #[test]
+    fn test_attributes_self_closing_tag_parsing() {
+        let parser = XmlParserBuilder::new()
+            .register_tag("function_call")
+            .build();
+
+        let text = "<function_call name=get_weather/>";
         let events = parser.parse(&text);
 
         assert_eq!(events[0].tag(), Some("function_call"));
@@ -1133,6 +1309,81 @@ mod tests {
             events[0].attributes().unwrap().get("name"),
             Some(&"get_weather".to_string())
         );
+    }
+
+    #[test]
+    fn test_iter_greedy_multiple_same_tag_parsing() {
+        let parser = XmlParserBuilder::new().register_tag("think").build();
+
+        let tokens = vec![
+            Ok("<think>Hello ".to_string()),
+            Ok("world<think> Regular content</think>".to_string()),
+            Ok("</think>".to_string()),
+        ];
+
+        let events = parser
+            .parse_iter(tokens.into_iter())
+            .collect::<Vec<Event>>();
+
+        let expected = &[
+            (Some("think"), TagParts::Start, "<think>"),
+            (Some("think"), TagParts::Content, "Hello "),
+            (
+                Some("think"),
+                TagParts::Content,
+                "world<think> Regular content",
+            ),
+            (
+                Some("think"),
+                TagParts::End,
+                "<think>Hello world<think> Regular content</think>",
+            ),
+            (None, TagParts::Content, "</think>"),
+        ];
+
+        assert_eq!(events.len(), expected.len());
+        for (event, (tag, part, content)) in events.iter().zip(expected) {
+            assert_eq!(event.tag(), *tag);
+            assert_eq!(event.part(), *part);
+            assert_eq!(event.get_content(), *content);
+        }
+    }
+
+    #[test]
+    fn test_iter_greedy_multiple_same_open_tag_parsing() {
+        let parser = XmlParserBuilder::new().register_tag("think").build();
+
+        let tokens = vec![
+            Ok("<think>Hello ".to_string()),
+            Ok("world<think> Regular content".to_string()),
+            Ok("</think>".to_string()),
+        ];
+
+        let events = parser
+            .parse_iter(tokens.into_iter())
+            .collect::<Vec<Event>>();
+
+        let expected = &[
+            (Some("think"), TagParts::Start, "<think>"),
+            (Some("think"), TagParts::Content, "Hello "),
+            (
+                Some("think"),
+                TagParts::Content,
+                "world<think> Regular content",
+            ),
+            (
+                Some("think"),
+                TagParts::End,
+                "<think>Hello world<think> Regular content</think>",
+            ),
+        ];
+
+        assert_eq!(events.len(), expected.len());
+        for (event, (tag, part, content)) in events.iter().zip(expected) {
+            assert_eq!(event.tag(), *tag);
+            assert_eq!(event.part(), *part);
+            assert_eq!(event.get_content(), *content);
+        }
     }
 
     #[test]
