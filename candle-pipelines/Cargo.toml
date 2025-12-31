@@ -32,6 +32,13 @@ tokio = { version = "1", features = ["full"] }
 pin-project-lite = "0.2"
 hf-hub = { version = "0.4.3", features = ["tokio", "ureq"] }
 
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "xml_parser"
+harness = false
+
 [features]
 default = []
 cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda", "candle-pipelines-models/cuda"]
