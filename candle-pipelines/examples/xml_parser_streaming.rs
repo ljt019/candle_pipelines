@@ -39,7 +39,7 @@ fn main() -> Result<()> {
     let tokens = pipeline.run_iter("What's the weather like in Tokyo?")?;
 
     // Wrap with XML parser
-    let events = parser.parse(tokens);
+    let events = parser.parse_iter(tokens);
 
     println!("\n--- Events ---");
 

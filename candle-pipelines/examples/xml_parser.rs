@@ -25,10 +25,10 @@ fn main() -> Result<()> {
         .build();
 
     // Generate streaming completion
-    let stream = pipeline.run_iter("What's the weather like in Tokyo?")?;
+    let completion = pipeline.run("What's the weather like in Tokyo?")?;
 
     // Wrap iterator with XML parser
-    let events = parser.parse(stream);
+    let events = parser.parse(&completion.text);
 
     println!("\n--- Generated Events ---");
     for event in events {

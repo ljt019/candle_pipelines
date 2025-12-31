@@ -45,7 +45,7 @@ impl Qwen3Parser {
     /// Process an XmlParser event and convert to ParseEvent.
     fn process_xml_event(&mut self, event: Event) -> Option<ParseEvent> {
         match &event {
-            Event::Tagged { tag, part, content } if tag == "tool_call" => {
+            Event::Tagged { tag, part, content, .. } if tag == "tool_call" => {
                 match part {
                     TagParts::Start => {
                         // Tool call starting - continue buffering
@@ -66,6 +66,7 @@ impl Qwen3Parser {
                 tag: _,
                 part,
                 content,
+                ..
             } => {
                 // Other registered tags - emit as text
                 match part {
