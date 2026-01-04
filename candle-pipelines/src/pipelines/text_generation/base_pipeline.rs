@@ -1,8 +1,8 @@
 use super::params::{apply_repeat_penalty, initialize_logits_processor, GenerationParams};
-use candle_core::Result as CandleResult;
 use crate::error::{PipelineError, Result};
 use crate::models::capabilities::{ModelConfig, TextGenerationModel};
 use crate::pipelines::stats::GenerationStats;
+use candle_core::Result as CandleResult;
 use candle_core::Tensor;
 use std::sync::{Arc, Mutex};
 use tokenizers::Tokenizer;

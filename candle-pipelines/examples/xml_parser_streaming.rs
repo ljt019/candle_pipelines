@@ -51,17 +51,26 @@ fn main() -> Result<()> {
         match event {
             Ok(event) => {
                 match event {
-                    Event::Tag { tag: Tags::Think, part } => match part {
+                    Event::Tag {
+                        tag: Tags::Think,
+                        part,
+                    } => match part {
                         TagPart::Opened { .. } => println!("[THINKING]"),
                         TagPart::Content { text } => print!("{}", text),
                         TagPart::Closed { .. } => println!("[DONE THINKING]\n"),
                     },
-                    Event::Tag { tag: Tags::ToolResult, part } => match part {
+                    Event::Tag {
+                        tag: Tags::ToolResult,
+                        part,
+                    } => match part {
                         TagPart::Opened { .. } => println!("[START TOOL RESULT]"),
                         TagPart::Content { text } => print!("{}", text),
                         TagPart::Closed { .. } => println!("[END TOOL RESULT]\n"),
                     },
-                    Event::Tag { tag: Tags::ToolCall, part } => match part {
+                    Event::Tag {
+                        tag: Tags::ToolCall,
+                        part,
+                    } => match part {
                         TagPart::Opened { .. } => println!("[TOOL CALL]"),
                         TagPart::Content { text } => print!("{}", text),
                         TagPart::Closed { .. } => println!("[END TOOL CALL]\n"),

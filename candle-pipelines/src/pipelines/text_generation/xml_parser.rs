@@ -47,7 +47,7 @@
 //! let events = parser.parse("<think>hmmm 30 + 37 = 67 so I should answer 67</think>67");
 //!
 //! for event in events {
-//!     match event? {
+//!     match event {
 //!         Event::Tag { tag, part } => match tag {
 //!             Tags::Think => match part {
 //!                 TagPart::Opened { .. } => println!("[thinking...]"),
@@ -940,7 +940,7 @@ mod tests {
         let mut parser = XmlParser::<Think>::new();
 
         let text = "Regular content";
-        let events = parser.parse(&text);
+        let events = parser.parse(text);
 
         assert_eq!(events.len(), 1);
         assert!(is_content(&events[0]));
@@ -952,7 +952,7 @@ mod tests {
         let mut parser = XmlParser::<Think>::new();
 
         let text = "";
-        let events = parser.parse(&text);
+        let events = parser.parse(text);
 
         assert_eq!(events.len(), 0);
     }
@@ -962,7 +962,7 @@ mod tests {
         let mut parser = XmlParser::<Think>::new();
 
         let text = "  ";
-        let events = parser.parse(&text);
+        let events = parser.parse(text);
 
         assert_eq!(events.len(), 1);
         assert!(is_content(&events[0]));
@@ -974,7 +974,7 @@ mod tests {
         let mut parser = XmlParser::<Think>::new();
 
         let text = "<think>Hello world</think>";
-        let events = parser.parse(&text);
+        let events = parser.parse(text);
 
         assert_eq!(events.len(), 3);
         assert!(is_tag(&events[0], &Think::Think));
@@ -992,7 +992,7 @@ mod tests {
         let mut parser = XmlParser::<Think>::new();
 
         let text = "<think>Hello world</think>Regular content";
-        let events = parser.parse(&text);
+        let events = parser.parse(text);
 
         assert_eq!(events.len(), 4);
         assert!(is_tag(&events[0], &Think::Think));
@@ -1010,7 +1010,7 @@ mod tests {
     fn test_unicode_tag_parsing() {
         let mut parser = XmlParser::<Think>::new();
         let text = "<think>你好世界</think>普通内容";
-        let events = parser.parse(&text);
+        let events = parser.parse(text);
 
         assert_eq!(events.len(), 4);
         assert!(is_tag(&events[1], &Think::Think));
@@ -1025,7 +1025,7 @@ mod tests {
         let mut parser = XmlParser::<Think>::new();
 
         let text = "How are <think>Hello world</think>you doing today?";
-        let events = parser.parse(&text);
+        let events = parser.parse(text);
 
         assert_eq!(events.len(), 5);
         assert!(is_content(&events[0]));
@@ -1043,7 +1043,7 @@ mod tests {
         let plain: String = events
             .iter()
             .filter(|e| is_content(e))
-            .map(|e| get_text(e))
+            .map(get_text)
             .collect();
         assert_eq!(plain, "How are you doing today?");
     }
@@ -1053,7 +1053,7 @@ mod tests {
         let mut parser = XmlParser::<ThinkAnswer>::new();
 
         let text = "<think>Hm the answer to 1 + 1 is 2</think><answer>2</answer>";
-        let events = parser.parse(&text);
+        let events = parser.parse(text);
 
         assert_eq!(events.len(), 6);
         assert!(is_tag(&events[0], &ThinkAnswer::Think));
@@ -1076,7 +1076,7 @@ mod tests {
         let mut parser = XmlParser::<Think>::new();
 
         let text = "<think>Hello world</think><think>Regular content</think>";
-        let events = parser.parse(&text);
+        let events = parser.parse(text);
 
         assert_eq!(events.len(), 6);
         assert!(is_tag(&events[0], &Think::Think));
@@ -1100,7 +1100,7 @@ mod tests {
         let mut parser = XmlParser::<Think>::new();
 
         let text = "<think></think>Regular content";
-        let events = parser.parse(&text);
+        let events = parser.parse(text);
 
         assert_eq!(events.len(), 3);
         assert!(is_tag(&events[0], &Think::Think));
@@ -1117,7 +1117,7 @@ mod tests {
         let mut parser = XmlParser::<Answer>::new();
 
         let text = "<think>Hm the answer to 1 + 1 is 2</think><answer>2</answer>";
-        let events = parser.parse(&text);
+        let events = parser.parse(text);
 
         assert_eq!(events.len(), 4);
         // <think> is not recognized, so it becomes output
@@ -1140,7 +1140,7 @@ mod tests {
         let mut parser = XmlParser::<Think>::new();
 
         let text = "<think/>Regular Content<think />";
-        let events = parser.parse(&text);
+        let events = parser.parse(text);
 
         // Self-closing tags only emit Closed (not Start+End)
         assert_eq!(events.len(), 3);
@@ -1159,7 +1159,7 @@ mod tests {
         let mut parser = XmlParser::<ThinkAnswer>::new();
 
         let text = "<think>Hm the answer to 1 + 1 is 2 so I should output <answer> tags containing 2 like <answer>2</answer>, I'll do that now</think><answer>2</answer>";
-        let events = parser.parse(&text);
+        let events = parser.parse(text);
 
         assert_eq!(events.len(), 6);
         assert!(is_tag(&events[0], &ThinkAnswer::Think));
@@ -1182,7 +1182,7 @@ mod tests {
         let mut parser = XmlParser::<Think>::new();
 
         let text = "<think>Hello world<think>Regular content</think></think>";
-        let events = parser.parse(&text);
+        let events = parser.parse(text);
 
         assert_eq!(events.len(), 4);
         assert!(is_tag(&events[0], &Think::Think));
@@ -1201,7 +1201,7 @@ mod tests {
         let mut parser = XmlParser::<Think>::new();
 
         let text = "<think>Hello world<think> Regular content</think>";
-        let events = parser.parse(&text);
+        let events = parser.parse(text);
 
         assert_eq!(events.len(), 3);
         assert!(is_tag(&events[0], &Think::Think));
@@ -1218,7 +1218,7 @@ mod tests {
         let mut parser = XmlParser::<Think>::new();
 
         let text = "<think>Hm I think the answer to 1 + 1 is 2</answer>";
-        let events = parser.parse(&text);
+        let events = parser.parse(text);
 
         assert_eq!(events.len(), 2);
         assert!(is_tag(&events[0], &Think::Think));
@@ -1236,7 +1236,7 @@ mod tests {
         let mut parser = XmlParser::<Think>::new();
 
         let text = "<think>Hm I think the answer to 1 + 1 is 2";
-        let events = parser.parse(&text);
+        let events = parser.parse(text);
 
         assert_eq!(events.len(), 2);
         assert!(is_tag(&events[0], &Think::Think));
@@ -1251,7 +1251,7 @@ mod tests {
         let mut parser = XmlParser::<Think>::new();
 
         let text = "hello <> world </>";
-        let events = parser.parse(&text);
+        let events = parser.parse(text);
 
         assert_eq!(events.len(), 1);
         assert!(is_content(&events[0]));
@@ -1285,7 +1285,7 @@ mod tests {
         let mut parser = XmlParser::<Think>::new();
 
         let text = "<think>Hello world</think>Regular content";
-        let events = parser.parse(&text);
+        let events = parser.parse(text);
 
         assert!(is_tag(&events[0], &Think::Think));
         assert!(get_attrs(&events[0]).unwrap().is_empty());
@@ -1338,7 +1338,7 @@ mod tests {
         let mut parser = XmlParser::<FunctionCall>::new();
 
         let text = "<function_call name=test>content</function_call>";
-        let events = parser.parse(&text);
+        let events = parser.parse(text);
 
         // Attributes are available on Opened and Closed events (not Content)
         for event in &events {
@@ -1354,7 +1354,7 @@ mod tests {
         let mut parser = XmlParser::<Think>::new();
 
         let text = "Regular content";
-        let events = parser.parse(&text);
+        let events = parser.parse(text);
 
         assert_eq!(events.len(), 1);
         assert!(is_content(&events[0]));
@@ -1532,7 +1532,7 @@ mod tests {
         let mut parser = XmlParser::<Think>::new();
 
         let text = "hello <think";
-        let events = parser.parse(&text);
+        let events = parser.parse(text);
 
         assert_eq!(events.len(), 1);
         assert!(is_content(&events[0]));
@@ -1564,7 +1564,7 @@ mod tests {
             .iter()
             .chain(events2.iter())
             .chain(events3.iter())
-            .map(|e| get_text(e))
+            .map(get_text)
             .collect();
 
         assert_eq!(all_content, "hello world");
@@ -1593,7 +1593,7 @@ mod tests {
 
         let text =
             r#"<tool_call>{"name": "get_weather", "arguments": {"city": "Tokyo"}}</tool_call>"#;
-        let events = parser.parse(&text);
+        let events = parser.parse(text);
 
         let closed_event = events.iter().find(|e| is_closed(e)).unwrap();
         let result = match closed_event {
@@ -1612,7 +1612,7 @@ mod tests {
         let mut parser = XmlParser::<ToolCall>::new();
 
         let text = "<tool_call>not valid json</tool_call>";
-        let events = parser.parse(&text);
+        let events = parser.parse(text);
 
         let closed_event = events.iter().find(|e| is_closed(e)).unwrap();
         let result = match closed_event {

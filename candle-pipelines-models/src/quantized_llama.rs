@@ -497,7 +497,8 @@ impl ModelWeights {
             let x = layer_in;
             let residual = &x;
             let x = layer.attention_norm.forward(&x)?;
-            let attn = layer.forward_attn(&x, mask.as_ref(), index_pos, &mut cache.kvs[layer_idx])?;
+            let attn =
+                layer.forward_attn(&x, mask.as_ref(), index_pos, &mut cache.kvs[layer_idx])?;
             let x = (attn + residual)?;
 
             let residual = &x;

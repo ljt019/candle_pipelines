@@ -64,9 +64,7 @@ impl GenerationParams {
 
         // Optional params - None is valid (means "don't apply this filter")
         let top_p = overrides.top_p.or(config.top_p);
-        let top_k = overrides
-            .top_k
-            .or(config.top_k.map(|k| k as usize));
+        let top_k = overrides.top_k.or(config.top_k.map(|k| k as usize));
         let min_p = overrides.min_p.or(config.min_p);
 
         Ok(Self {

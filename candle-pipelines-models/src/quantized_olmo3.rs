@@ -294,8 +294,7 @@ impl AttentionWeights {
 
         // Generate per-layer attention mask (with sliding window if configured)
         if l > 1 {
-            let attn_mask =
-                self.prepare_attention_mask(b, l, offset, q.dtype(), q.device())?;
+            let attn_mask = self.prepare_attention_mask(b, l, offset, q.dtype(), q.device())?;
             scores = scores.broadcast_add(&attn_mask)?;
         }
 
@@ -330,8 +329,10 @@ impl LayerWeights {
     ) -> Result<Self> {
         let prefix = format!("blk.{layer_idx}");
 
-        let post_attention_layernorm =
-            gg.rms_norm(&format!("{prefix}.post_attention_norm.weight"), rms_norm_eps)?;
+        let post_attention_layernorm = gg.rms_norm(
+            &format!("{prefix}.post_attention_norm.weight"),
+            rms_norm_eps,
+        )?;
         let post_feedforward_layernorm =
             gg.rms_norm(&format!("{prefix}.post_ffw_norm.weight"), rms_norm_eps)?;
 

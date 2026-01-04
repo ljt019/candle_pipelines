@@ -1,5 +1,5 @@
-use crate::models::capabilities::ZeroShotClassificationModel;
 use crate::error::{PipelineError, Result};
+use crate::models::capabilities::ZeroShotClassificationModel;
 use crate::pipelines::stats::EncoderStats;
 use tokenizers::Tokenizer;
 
