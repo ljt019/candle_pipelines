@@ -1,6 +1,6 @@
-use super::model::ZeroShotClassificationModel;
 use crate::error::{PipelineError, Result};
-use crate::pipelines::stats::PipelineStats;
+use crate::models::capabilities::ZeroShotClassificationModel;
+use crate::pipelines::stats::EncoderStats;
 use tokenizers::Tokenizer;
 
 // ============ Output types ============
@@ -20,7 +20,7 @@ pub struct Output {
     /// All labels ranked by confidence.
     pub predictions: Vec<Prediction>,
     /// Execution statistics.
-    pub stats: PipelineStats,
+    pub stats: EncoderStats,
 }
 
 /// Single result in batch output.
@@ -38,7 +38,7 @@ pub struct BatchOutput {
     /// Results for each input.
     pub results: Vec<BatchResult>,
     /// Execution statistics.
-    pub stats: PipelineStats,
+    pub stats: EncoderStats,
 }
 
 // ============ Input trait for type-based dispatch ============
@@ -54,7 +54,7 @@ pub trait ZeroShotInput<'a> {
     fn convert_output(
         texts: Vec<&'a str>,
         predictions: Vec<Result<Vec<Prediction>>>,
-        stats: PipelineStats,
+        stats: EncoderStats,
     ) -> Result<Self::Output>;
 }
 
@@ -68,7 +68,7 @@ impl<'a> ZeroShotInput<'a> for &'a str {
     fn convert_output(
         _texts: Vec<&'a str>,
         mut predictions: Vec<Result<Vec<Prediction>>>,
-        stats: PipelineStats,
+        stats: EncoderStats,
     ) -> Result<Self::Output> {
         let preds = predictions
             .pop()
@@ -90,7 +90,7 @@ impl<'a> ZeroShotInput<'a> for &'a [&'a str] {
     fn convert_output(
         texts: Vec<&'a str>,
         predictions: Vec<Result<Vec<Prediction>>>,
-        stats: PipelineStats,
+        stats: EncoderStats,
     ) -> Result<Self::Output> {
         let results = texts
             .into_iter()
@@ -114,7 +114,7 @@ impl<'a, const N: usize> ZeroShotInput<'a> for &'a [&'a str; N] {
     fn convert_output(
         texts: Vec<&'a str>,
         predictions: Vec<Result<Vec<Prediction>>>,
-        stats: PipelineStats,
+        stats: EncoderStats,
     ) -> Result<Self::Output> {
         let results = texts
             .into_iter()
@@ -225,7 +225,7 @@ impl<M: ZeroShotClassificationModel> ZeroShotClassificationPipeline<M> {
         candidate_labels: &[&str],
         multi_label: bool,
     ) -> Result<I::Output> {
-        let stats_builder = PipelineStats::start();
+        let stats_builder = EncoderStats::start();
         let texts = input.into_texts();
         let item_count = texts.len();
 

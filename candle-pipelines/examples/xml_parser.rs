@@ -1,7 +1,15 @@
 use candle_pipelines::error::Result;
 use candle_pipelines::text_generation::{
-    tool, tools, Qwen3Size, TagParts, TextGenerationPipelineBuilder, XmlParserBuilder,
+    tool, tools, Event, Qwen3, TagPart, TextGenerationPipelineBuilder, XmlTag,
 };
+
+/// Tags we want to parse from the model output.
+#[derive(Debug, Clone, PartialEq, XmlTag)]
+enum Tags {
+    Think,      // matches <think>
+    ToolResult, // matches <tool_result>
+    ToolCall,   // matches <tool_call>
+}
 
 #[tool]
 /// Gets the current weather in a given city
@@ -11,49 +19,49 @@ fn get_weather(city: String) -> Result<String> {
 
 fn main() -> Result<()> {
     // Build a regular pipeline - fully sync, no async runtime needed
-    let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
+    let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3::Size0_6B)
         .max_len(1024)
         .build()?;
 
     pipeline.register_tools(tools![get_weather]);
 
     // Create XML parser for specific tags
-    let parser = XmlParserBuilder::new()
-        .register_tag("think")
-        .register_tag("tool_result")
-        .register_tag("tool_call")
-        .build();
+    let mut parser = Tags::parser();
 
-    // Generate streaming completion
-    let stream = pipeline.run_iter("What's the weather like in Tokyo?")?;
+    // Generate completion
+    let completion = pipeline.run("What's the weather like in Tokyo?")?;
 
-    // Wrap iterator with XML parser
-    let events = parser.parse(stream);
+    // Parse the text for XML events
+    let events = parser.parse(&completion.text);
 
     println!("\n--- Generated Events ---");
     for event in events {
-        match event.tag() {
-            Some("think") => match event.part() {
-                TagParts::Start => println!("[THINKING]"),
-                TagParts::Content => print!("{}", event.get_content()),
-                TagParts::End => println!("[DONE THINKING]\n"),
+        match event {
+            Event::Tag {
+                tag: Tags::Think,
+                part,
+            } => match part {
+                TagPart::Opened { .. } => println!("[THINKING]"),
+                TagPart::Content { text } => print!("{}", text),
+                TagPart::Closed { .. } => println!("[DONE THINKING]\n"),
             },
-            Some("tool_result") => match event.part() {
-                TagParts::Start => println!("[START TOOL RESULT]"),
-                TagParts::Content => print!("{}", event.get_content()),
-                TagParts::End => println!("[END TOOL RESULT]\n"),
+            Event::Tag {
+                tag: Tags::ToolResult,
+                part,
+            } => match part {
+                TagPart::Opened { .. } => println!("[START TOOL RESULT]"),
+                TagPart::Content { text } => print!("{}", text),
+                TagPart::Closed { .. } => println!("[END TOOL RESULT]\n"),
             },
-            Some("tool_call") => match event.part() {
-                TagParts::Start => println!("[START TOOL CALL]"),
-                TagParts::Content => print!("{}", event.get_content()),
-                TagParts::End => println!("[END TOOL CALL]\n"),
+            Event::Tag {
+                tag: Tags::ToolCall,
+                part,
+            } => match part {
+                TagPart::Opened { .. } => println!("[START TOOL CALL]"),
+                TagPart::Content { text } => print!("{}", text),
+                TagPart::Closed { .. } => println!("[END TOOL CALL]\n"),
             },
-            Some(_) => { /* ignore unknown tags */ }
-            None => match event.part() {
-                TagParts::Start => println!("[OUTPUT]"),
-                TagParts::Content => print!("{}", event.get_content()),
-                TagParts::End => println!("[END OUTPUT]\n"),
-            },
+            Event::Content { text } => print!("{}", text),
         }
     }
 

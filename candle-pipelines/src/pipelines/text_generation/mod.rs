@@ -6,10 +6,10 @@
 //! # Quick Start
 //!
 //! ```rust,no_run
-//! use candle_pipelines::text_generation::{TextGenerationPipelineBuilder, Qwen3Size};
+//! use candle_pipelines::text_generation::{TextGenerationPipelineBuilder, Olmo3};
 //!
 //! # fn main() -> candle_pipelines::error::Result<()> {
-//! let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
+//! let pipeline = TextGenerationPipelineBuilder::olmo3(Olmo3::Size7B)
 //!     .build()?;
 //!
 //! let output = pipeline.run("Explain quantum computing briefly.")?;
@@ -24,9 +24,9 @@
 //! Use [`Message`] to build conversations:
 //!
 //! ```rust,no_run
-//! # use candle_pipelines::text_generation::{TextGenerationPipelineBuilder, Qwen3Size, Message};
+//! # use candle_pipelines::text_generation::{TextGenerationPipelineBuilder, Qwen3, Message};
 //! # fn main() -> candle_pipelines::error::Result<()> {
-//! # let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B).build()?;
+//! # let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3::Size0_6B).build()?;
 //! let mut messages = vec![
 //!     Message::system("You are a helpful assistant."),
 //!     Message::user("What is Rust?"),
@@ -48,9 +48,9 @@
 //! Configure sampling via the builder:
 //!
 //! ```rust,no_run
-//! # use candle_pipelines::text_generation::{TextGenerationPipelineBuilder, Qwen3Size};
+//! # use candle_pipelines::text_generation::{TextGenerationPipelineBuilder, Qwen3};
 //! # fn main() -> candle_pipelines::error::Result<()> {
-//! let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
+//! let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3::Size0_6B)
 //!     .temperature(0.8)    // randomness (0.0 = deterministic)
 //!     .top_k(50)           // sample from top 50 tokens
 //!     .top_p(0.9)          // nucleus sampling
@@ -66,9 +66,9 @@
 //! Iterate over tokens as they're generated:
 //!
 //! ```rust,no_run
-//! # use candle_pipelines::text_generation::{TextGenerationPipelineBuilder, Qwen3Size};
+//! # use candle_pipelines::text_generation::{TextGenerationPipelineBuilder, Qwen3};
 //! # fn main() -> candle_pipelines::error::Result<()> {
-//! # let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B).build()?;
+//! # let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3::Size0_6B).build()?;
 //! let mut tokens = pipeline.run_iter("Write a poem about Rust.")?;
 //!
 //! for token in &mut tokens {
@@ -84,7 +84,7 @@
 //! Let the model call your functions:
 //!
 //! ```rust,no_run
-//! use candle_pipelines::text_generation::{tool, tools, TextGenerationPipelineBuilder, Qwen3Size};
+//! use candle_pipelines::text_generation::{tool, tools, TextGenerationPipelineBuilder, Qwen3};
 //! use candle_pipelines::error::Result;
 //!
 //! #[tool]
@@ -94,7 +94,7 @@
 //! }
 //!
 //! # fn main() -> Result<()> {
-//! let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
+//! let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3::Size0_6B)
 //!     .build()?;
 //!
 //! pipeline.register_tools(tools![get_weather]);
@@ -110,26 +110,33 @@
 //! Parse XML tags in streaming output with [`XmlParser`]:
 //!
 //! ```rust,no_run
-//! # use candle_pipelines::text_generation::{TextGenerationPipelineBuilder, Qwen3Size, TagParts, XmlParserBuilder};
+//! # use candle_pipelines::text_generation::{TextGenerationPipelineBuilder, Qwen3, Event, TagPart, XmlTag};
 //! # fn main() -> candle_pipelines::error::Result<()> {
-//! let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
+//! // Define which tags to parse using an enum
+//! #[derive(Debug, Clone, PartialEq, XmlTag)]
+//! enum Tags {
+//!     #[tag("think")]
+//!     Think,
+//!     #[tag("answer")]
+//!     Answer,
+//! }
+//!
+//! let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3::Size0_6B)
 //!     .build()?;
 //!
-//! // Create parser for specific tags
-//! let parser = XmlParserBuilder::new()
-//!     .register_tag("think")
-//!     .register_tag("answer")
-//!     .build();
+//! // Create parser from tag enum
+//! let parser = Tags::parser();
 //!
 //! // Wrap the token iterator with XML parsing
 //! let tokens = pipeline.run_iter("Solve 2+2. Think step by step.")?;
-//! let events = parser.parse(tokens);
+//! let events = parser.parse_iter(tokens);
 //!
 //! for event in events {
-//!     match (event.tag(), event.part()) {
-//!         (Some("think"), TagParts::Content) => print!("[thinking] {}", event.get_content()),
-//!         (Some("answer"), TagParts::Content) => print!("[answer] {}", event.get_content()),
-//!         (None, TagParts::Content) => print!("{}", event.get_content()),
+//!     let event = event?; // Propagate errors
+//!     match event {
+//!         Event::Tag { tag: Tags::Think, part: TagPart::Content { text } } => print!("[thinking] {}", text),
+//!         Event::Tag { tag: Tags::Answer, part: TagPart::Content { text } } => print!("[answer] {}", text),
+//!         Event::Content { text } => print!("{}", text),
 //!         _ => {}
 //!     }
 //! }
@@ -141,21 +148,21 @@
 //!
 //! | Model | Sizes | Builder Method |
 //! |-------|-------|----------------|
-//! | Qwen3 | `0.6B`, `1.7B`, `4B`, `8B`, `14B`, `32B` | [`TextGenerationPipelineBuilder::qwen3`] |
-//! | Gemma3 | `1B`, `4B`, `12B`, `27B` | [`TextGenerationPipelineBuilder::gemma3`] |
+//! | Qwen3 | `Size0_6B`, `Size1_7B`, `Size4B`, `Size8B`, `Size14B`, `Size32B` | [`TextGenerationPipelineBuilder::qwen3`] |
+//! | Gemma3 | `Size1B`, `Size4B`, `Size12B`, `Size27B` | [`TextGenerationPipelineBuilder::gemma3`] |
+//! | Llama 3.2 | `Size1B`, `Size3B` | [`TextGenerationPipelineBuilder::llama3_2`] |
+//! | OLMo-3 | `Size7B`, `Size32B` | [`TextGenerationPipelineBuilder::olmo3`] |
 
 // ============ Internal API ============
 
 pub(crate) mod base_pipeline;
 pub(crate) mod builder;
 pub(crate) mod message;
-pub(crate) mod model;
 pub(crate) mod params;
-pub(crate) mod parser;
 pub(crate) mod pipeline;
-pub(crate) mod stats;
 pub(crate) mod streaming;
 pub(crate) mod tools;
+pub(crate) mod xml_parser;
 
 // For tool_macro
 #[doc(hidden)]
@@ -165,15 +172,17 @@ pub use tools::ToolFuture;
 
 // ============ Public API ============
 
-pub use crate::models::{Gemma3, Gemma3Size, Qwen3, Qwen3Size};
+// Model config enums - the simple API!
+pub use crate::models::{Gemma3, Llama3_2, Olmo3, Qwen3};
+
+pub use crate::pipelines::stats::GenerationStats;
 pub use builder::TextGenerationPipelineBuilder;
-pub use candle_pipelines_macros::{tool, tools};
+pub use candle_pipelines_macros::{tool, tools, XmlTag};
 pub use message::Message;
-pub use model::{Reasoning, ToggleableReasoning};
 pub use params::GenerationParams;
-pub use parser::{Event, EventIterator, EventStream, TagParts, XmlParser, XmlParserBuilder};
 pub use pipeline::{
     AnyTextGenerationPipeline, AnyTextGenerationPipelineExt, BoxedIterator, BoxedTokenIterator,
     Output, TextGeneration, TextGenerationPipeline, TokenIterator,
 };
-pub use tools::{ErrorStrategy, Tool, ToolCalling};
+pub use tools::{ErrorStrategy, Tool};
+pub use xml_parser::{Event, TagPart, XmlParser, XmlTag};

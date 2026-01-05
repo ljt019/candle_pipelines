@@ -63,13 +63,12 @@
 // ============ Internal API ============
 
 pub(crate) mod builder;
-pub(crate) mod model;
 pub(crate) mod pipeline;
 
 // ============ Public API ============
 
 pub use crate::models::ModernBertSize;
-pub use crate::pipelines::stats::PipelineStats;
+pub use crate::pipelines::stats::EncoderStats;
 pub use builder::FillMaskPipelineBuilder;
 pub use pipeline::{
     BatchOutput, BatchResult, BatchTopKOutput, BatchTopKResult, FillMaskPipeline, Output,

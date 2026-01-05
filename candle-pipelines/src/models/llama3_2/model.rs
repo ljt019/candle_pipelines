@@ -2,74 +2,63 @@ use std::sync::Arc;
 
 use candle_core::quantized::gguf_file;
 use candle_core::{DType, Device, Tensor};
-use candle_pipelines_models::quantized_gemma3 as candle_gemma3;
+use candle_pipelines_models::quantized_llama as candle_llama;
 use minijinja::UndefinedBehavior;
 use minijinja::{context, Environment};
 use minijinja_contrib::{add_to_environment, pycompat};
 use tokenizers::Tokenizer;
 
+use super::tool_parser::LlamaToolParser;
 use crate::error::{PipelineError, Result};
 use crate::loaders::GenerationConfig;
 use crate::loaders::{GenerationConfigLoader, GgufModelLoader, HfLoader, TokenizerLoader};
-use crate::models::capabilities::{ModelCache, ModelConfig, TextGenerationModel};
+use crate::models::capabilities::{ModelCache, ModelConfig, TextGenerationModel, ToolCalling};
 
-/// Gemma 3 model configuration.
+/// Llama 3.2 model configuration.
 ///
-/// Use variants like `Gemma3::Size1B` to select model size.
+/// Use variants like `Llama3_2::Size1B` to select model size.
 #[derive(Debug, Clone, Copy)]
-pub enum Gemma3 {
+pub enum Llama3_2 {
     /// 1 billion parameters.
     Size1B,
-    /// 4 billion parameters.
-    Size4B,
-    /// 12 billion parameters.
-    Size12B,
-    /// 27 billion parameters.
-    Size27B,
+    /// 3 billion parameters.
+    Size3B,
 }
 
-impl Gemma3 {
+impl Llama3_2 {
     pub(crate) fn weight_repo_id(&self) -> &str {
         match self {
-            Gemma3::Size1B => "unsloth/gemma-3-1b-it-GGUF",
-            Gemma3::Size4B => "unsloth/gemma-3-4b-it-GGUF",
-            Gemma3::Size12B => "unsloth/gemma-3-12b-it-GGUF",
-            Gemma3::Size27B => "unsloth/gemma-3-27b-it-GGUF",
+            Llama3_2::Size1B => "unsloth/Llama-3.2-1B-Instruct-GGUF",
+            Llama3_2::Size3B => "unsloth/Llama-3.2-3B-Instruct-GGUF",
         }
     }
 
     pub(crate) fn weight_filename(&self) -> &str {
         match self {
-            Gemma3::Size1B => "gemma-3-1b-it-Q4_K_M.gguf",
-            Gemma3::Size4B => "gemma-3-4b-it-Q4_K_M.gguf",
-            Gemma3::Size12B => "gemma-3-12b-it-Q4_K_M.gguf",
-            Gemma3::Size27B => "gemma-3-27b-it-Q4_K_M.gguf",
+            Llama3_2::Size1B => "Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+            Llama3_2::Size3B => "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
         }
     }
 
     pub(crate) fn config_repo_id(&self) -> &str {
         match self {
-            Gemma3::Size1B => "google/gemma-3-1b-it",
-            Gemma3::Size4B => "google/gemma-3-4b-it",
-            Gemma3::Size12B => "google/gemma-3-12b-it",
-            Gemma3::Size27B => "google/gemma-3-27b-it",
+            Llama3_2::Size1B => "meta-llama/Llama-3.2-1B-Instruct",
+            Llama3_2::Size3B => "meta-llama/Llama-3.2-3B-Instruct",
         }
     }
 }
 
-impl std::fmt::Display for Gemma3 {
+impl std::fmt::Display for Llama3_2 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let name = match self {
-            Gemma3::Size1B => "gemma3-1b",
-            Gemma3::Size4B => "gemma3-4b",
-            Gemma3::Size12B => "gemma3-12b",
-            Gemma3::Size27B => "gemma3-27b",
+            Llama3_2::Size1B => "llama3.2-1b",
+            Llama3_2::Size3B => "llama3.2-3b",
         };
         write!(f, "{name}")
     }
 }
 
-impl crate::pipelines::cache::ModelOptions for Gemma3 {
+impl crate::pipelines::cache::ModelOptions for Llama3_2 {
     fn cache_key(&self) -> String {
         self.to_string()
     }
@@ -82,34 +71,33 @@ pub struct ModelInfo {
     pub max_seq_len: usize,
     pub dtype: DType,
     pub device: Device,
-    pub target_device: Option<String>,
 }
 
-/// Internal Gemma3 model implementation.
+/// Internal Llama 3.2 model implementation.
 #[derive(Clone)]
-pub(crate) struct Gemma3Model {
-    weights: Arc<candle_gemma3::ModelWeights>,
+pub(crate) struct Llama3_2Model {
+    weights: Arc<candle_llama::ModelWeights>,
     info: ModelInfo,
     tokenizer_repo_id: String,
     generation_config: GenerationConfig,
     chat_template_env: Arc<Environment<'static>>,
 }
 
-impl Gemma3Model {
+impl Llama3_2Model {
     fn parse_metadata(content: &gguf_file::Content, device: &Device) -> Result<ModelInfo> {
         let num_layers = content
             .metadata
-            .get("gemma3.block_count")
+            .get("llama.block_count")
             .and_then(|v| v.to_u32().ok())
             .ok_or_else(|| {
                 PipelineError::Unexpected(
-                    "Missing 'gemma3.block_count' in Gemma3 model metadata".to_string(),
+                    "Missing 'llama.block_count' in Llama model metadata".to_string(),
                 )
             })? as usize;
 
         let max_seq_len = content
             .metadata
-            .get("gemma3.context_length")
+            .get("llama.context_length")
             .and_then(|v| v.to_u32().ok())
             .unwrap_or(131_072) as usize;
 
@@ -124,18 +112,11 @@ impl Gemma3Model {
             })
             .unwrap_or(DType::F16);
 
-        let target_device = content
-            .metadata
-            .get("general.architecture")
-            .and_then(|v| v.to_string().ok())
-            .cloned();
-
         Ok(ModelInfo {
             num_layers,
             max_seq_len,
             dtype,
             device: device.clone(),
-            target_device,
         })
     }
 
@@ -147,7 +128,7 @@ impl Gemma3Model {
 
         let chat_template_str = config_json["chat_template"].as_str().ok_or_else(|| {
             PipelineError::Unexpected(
-                "Missing 'chat_template' in tokenizer config for Gemma3".to_string(),
+                "Missing 'chat_template' in tokenizer config for Llama3".to_string(),
             )
         })?;
 
@@ -159,7 +140,7 @@ impl Gemma3Model {
 
         env.add_template_owned("chat", chat_template_str.to_string())
             .map_err(|e| {
-                PipelineError::Unexpected(format!("Failed to parse chat template for Gemma3: {e}"))
+                PipelineError::Unexpected(format!("Failed to parse chat template for Llama3: {e}"))
             })?;
 
         Ok(Arc::new(env))
@@ -188,7 +169,7 @@ impl Gemma3Model {
     fn ensure_eos_tokens(config: &GenerationConfig) -> Result<()> {
         if config.eos_token_ids.is_empty() {
             return Err(PipelineError::Unexpected(
-                "Missing 'eos_token_ids' in generation config for Gemma3".to_string(),
+                "Missing 'eos_token_ids' in generation config for Llama3".to_string(),
             ));
         }
 
@@ -204,7 +185,7 @@ impl Gemma3Model {
         chat_template_env: Arc<Environment<'static>>,
     ) -> Result<Self> {
         let info = Self::parse_metadata(&content, device)?;
-        let weights = Arc::new(candle_gemma3::ModelWeights::from_gguf(
+        let weights = Arc::new(candle_llama::ModelWeights::from_gguf(
             content, &mut file, device,
         )?);
 
@@ -217,7 +198,7 @@ impl Gemma3Model {
         })
     }
 
-    pub(crate) fn from_hf(device: &Device, size: Gemma3) -> Result<Self> {
+    pub(crate) fn from_hf(device: &Device, size: Llama3_2) -> Result<Self> {
         let loader = GgufModelLoader::new(size.weight_repo_id(), size.weight_filename());
         let (file, content) = loader.load()?;
 
@@ -237,7 +218,7 @@ impl Gemma3Model {
         )
     }
 
-    pub(crate) async fn from_hf_async(device: &Device, size: Gemma3) -> Result<Self> {
+    pub(crate) async fn from_hf_async(device: &Device, size: Llama3_2) -> Result<Self> {
         let loader = GgufModelLoader::new(size.weight_repo_id(), size.weight_filename());
         let (file, content) = loader.load_async().await?;
 
@@ -266,61 +247,102 @@ impl Gemma3Model {
 }
 
 // Implement ModelCache for the external cache type
-impl ModelCache for candle_gemma3::Cache {
+impl ModelCache for candle_llama::Cache {
     fn reset(&mut self) {
-        candle_gemma3::Cache::reset(self);
+        candle_llama::Cache::reset(self);
     }
 
     fn current_seq_len(&self) -> usize {
-        candle_gemma3::Cache::current_seq_len(self)
+        candle_llama::Cache::current_seq_len(self)
     }
 }
 
-impl ModelConfig for Gemma3 {
-    type Model = Gemma3Model;
+impl ModelConfig for Llama3_2 {
+    type Model = Llama3_2Model;
 
     fn build(self, device: Device) -> Result<Self::Model> {
-        Gemma3Model::from_hf(&device, self)
+        Llama3_2Model::from_hf(&device, self)
     }
 }
 
-impl TextGenerationModel for Gemma3Model {
-    type Options = Gemma3;
-    type Cache = candle_gemma3::Cache;
+impl TextGenerationModel for Llama3_2Model {
+    type Options = Llama3_2;
+    type Cache = candle_llama::Cache;
 
     fn new(options: Self::Options, device: Device) -> Result<Self> {
-        Gemma3Model::from_hf(&device, options)
+        Llama3_2Model::from_hf(&device, options)
     }
 
     async fn new_async(options: Self::Options, device: Device) -> Result<Self> {
-        Gemma3Model::from_hf_async(&device, options).await
+        Llama3_2Model::from_hf_async(&device, options).await
     }
 
     fn get_tokenizer(&self) -> Result<Tokenizer> {
-        Gemma3Model::get_tokenizer(self)
+        Llama3_2Model::get_tokenizer(self)
     }
 
     fn apply_chat_template(
         &self,
         messages: &[crate::pipelines::text_generation::message::Message],
-        _tools: &[crate::pipelines::text_generation::tools::Tool],
+        tools: &[crate::pipelines::text_generation::tools::Tool],
     ) -> Result<String> {
-        // Gemma3 doesn't support tool calling, so tools parameter is ignored
+        use crate::pipelines::text_generation::message::Role;
+
         let message_count = messages.len();
+
+        // Llama uses "ipython" role for tool results, so we remap internally
+        #[derive(serde::Serialize)]
+        struct LlamaMessage<'a> {
+            role: &'a str,
+            content: &'a str,
+        }
+
+        let llama_messages: Vec<LlamaMessage> = messages
+            .iter()
+            .map(|m| LlamaMessage {
+                role: match m.role() {
+                    Role::Tool => "ipython", // Llama's tool result role
+                    other => other.as_str(),
+                },
+                content: m.content(),
+            })
+            .collect();
+
+        // Convert tools to JSON format expected by Llama template
+        let tools_json: Option<Vec<serde_json::Value>> = if tools.is_empty() {
+            None
+        } else {
+            Some(
+                tools
+                    .iter()
+                    .map(|t| {
+                        serde_json::json!({
+                            "type": "function",
+                            "function": {
+                                "name": t.name(),
+                                "description": t.description(),
+                                "parameters": t.schema()
+                            }
+                        })
+                    })
+                    .collect(),
+            )
+        };
 
         let rendered = self
             .chat_template_env
             .get_template("chat")
             .map_err(|e| {
-                PipelineError::Unexpected(format!("Failed to get chat template for Gemma3: {e}"))
+                PipelineError::Unexpected(format!("Failed to get chat template for Llama3: {e}"))
             })?
             .render(context! {
-                messages => messages,
+                messages => llama_messages,
+                tools => tools_json,
                 add_generation_prompt => true,
             })
             .map_err(|e| {
                 PipelineError::Unexpected(format!(
-                    "Failed to render template for Gemma3 ({message_count} messages): {e}"
+                    "Failed to render template for Llama3 ({message_count} messages): {e}"
                 ))
             })?;
         Ok(rendered)
@@ -343,15 +365,18 @@ impl TextGenerationModel for Gemma3Model {
     }
 
     fn forward(&self, input: &Tensor, cache: &mut Self::Cache) -> candle_core::Result<Tensor> {
-        let input = if input.dtype() != DType::I64 {
-            input.to_dtype(DType::I64)?
-        } else {
-            input.clone()
-        };
-        self.weights.forward(&input, cache)
+        self.weights.forward(input, cache)
     }
 
     fn get_generation_config(&self) -> &crate::loaders::GenerationConfig {
         &self.generation_config
+    }
+}
+
+impl ToolCalling for Llama3_2Model {
+    type Parser = LlamaToolParser;
+
+    fn new_parser(&self) -> Self::Parser {
+        LlamaToolParser::new()
     }
 }

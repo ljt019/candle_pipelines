@@ -1,15 +1,20 @@
 #![allow(unused_assignments)]
+#![allow(private_bounds)]
 
 use super::base_pipeline::BasePipeline;
 use super::message::Message;
-use super::model::TextGenerationModel;
-use super::model::{ModelCache, Reasoning, ToggleableReasoning};
 use super::params::GenerationParams;
-use super::stats::GenerationStats;
-use super::tools::{ErrorStrategy, Tool};
+use super::tools::{ErrorStrategy, GenericToolAwareIterator, Tool};
 use crate::error::PipelineError;
 use crate::error::Result;
-use crate::models::{Gemma3, Qwen3};
+use crate::models::capabilities::{
+    ModelCache, ModelConfig, Reasoning, TextGenerationModel, ToggleableReasoning,
+    ToolCallInvocation, ToolCalling,
+};
+use crate::models::llama3_2::tool_parser::{self as llama_tool_parser, LlamaToolCall};
+use crate::models::olmo3::tool_parser::{self as olmo3_tool_parser, Olmo3ToolCall};
+use crate::models::{Gemma3, Llama3_2, Olmo3, Qwen3};
+use crate::pipelines::stats::GenerationStats;
 use regex::Regex;
 use serde::Deserialize;
 
@@ -182,10 +187,10 @@ impl<'a> From<&'a String> for Input<'a> {
 /// # Example
 ///
 /// ```rust,no_run
-/// use candle_pipelines::text_generation::{TextGenerationPipelineBuilder, Qwen3Size, Message};
+/// use candle_pipelines::text_generation::{TextGenerationPipelineBuilder, Qwen3, Message};
 ///
 /// # fn example() -> candle_pipelines::error::Result<()> {
-/// let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
+/// let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3::Size0_6B)
 ///     .build()?;
 ///
 /// // Simple prompt - returns Output { text, stats }
@@ -200,16 +205,16 @@ impl<'a> From<&'a String> for Input<'a> {
 /// let output = pipeline.run(&messages)?;
 /// # Ok(())
 /// # }
-pub struct TextGenerationPipeline<M: TextGenerationModel> {
-    pub(crate) base: BasePipeline<M>,
+pub struct TextGenerationPipeline<C: ModelConfig> {
+    pub(crate) base: BasePipeline<C>,
     tool_error_strategy: ErrorStrategy,
     tools: std::sync::RwLock<Vec<Tool>>,
     tools_enabled: std::sync::atomic::AtomicBool,
 }
 
-impl<M: TextGenerationModel + Send + Sync> TextGenerationPipeline<M> {
+impl<C: ModelConfig> TextGenerationPipeline<C> {
     pub(crate) fn new(
-        model: std::sync::Arc<M>,
+        model: std::sync::Arc<C::Model>,
         gen_params: GenerationParams,
         device: candle_core::Device,
         tool_error_strategy: ErrorStrategy,
@@ -290,6 +295,69 @@ impl<M: TextGenerationModel + Send + Sync> TextGenerationPipeline<M> {
     /// Returns the current tool error handling strategy.
     pub fn tool_error_strategy(&self) -> &ErrorStrategy {
         &self.tool_error_strategy
+    }
+
+    /// Returns a reference to the underlying model.
+    pub(crate) fn model(&self) -> &C::Model {
+        &self.base.model
+    }
+
+    /// Execute tool calls using the generic ToolCallInvocation format.
+    ///
+    /// This is the unified tool execution method used by the generic iterator.
+    pub(crate) async fn execute_tool_calls_generic(
+        &self,
+        tool_calls: Vec<ToolCallInvocation>,
+        tools: &[Tool],
+    ) -> Result<Vec<ToolResult>> {
+        let mut tool_results = Vec::new();
+
+        for call in tool_calls {
+            let available_tools: Vec<String> = tools.iter().map(|t| t.name.clone()).collect();
+            let tool = tools.iter().find(|t| t.name == call.name).ok_or_else(|| {
+                PipelineError::Tool(format!(
+                    "Tool '{}' not found. Registered tools: {}",
+                    call.name,
+                    available_tools.join(", ")
+                ))
+            })?;
+
+            let args = call.arguments.clone();
+            let mut attempts = 0u32;
+
+            loop {
+                match tool.call(args.clone()).await {
+                    Ok(result) => {
+                        tool_results.push(ToolResult {
+                            name: call.name.clone(),
+                            arguments: args,
+                            result: result.trim_end_matches('\n').to_string(),
+                        });
+                        break;
+                    }
+                    Err(e) => {
+                        attempts += 1;
+                        if attempts >= tool.max_retries() {
+                            match &self.tool_error_strategy {
+                                ErrorStrategy::Fail => return Err(e),
+                                ErrorStrategy::ReturnToModel => {
+                                    tool_results.push(ToolResult {
+                                        name: call.name.clone(),
+                                        arguments: args,
+                                        result: format!("Error: {e}"),
+                                    });
+                                    break;
+                                }
+                            }
+                        } else {
+                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(tool_results)
     }
 
     /// Update generation parameters (temperature, top_p, etc.).
@@ -412,10 +480,7 @@ impl<M: TextGenerationModel + Send + Sync> TextGenerationPipeline<M> {
         crate::pipelines::text_generation::streaming::Tokens<
             impl Iterator<Item = Result<String>> + Send + 'a,
         >,
-    >
-    where
-        M: 'a,
-    {
+    > {
         let tools = self.active_tools();
         let (tokens, reset_cache) = match input.into() {
             Input::Prompt(p) => {
@@ -468,7 +533,7 @@ impl<M: TextGenerationModel + Send + Sync> TextGenerationPipeline<M> {
     }
 
     // Streaming from owned messages (for tool-aware iterator)
-    fn run_iter_from_messages_owned(
+    pub(crate) fn run_iter_from_messages_owned(
         &self,
         messages: Vec<Message>,
     ) -> Result<
@@ -500,16 +565,13 @@ impl<M: TextGenerationModel + Send + Sync> TextGenerationPipeline<M> {
         Ok(self.run_iter_from_tokens(tokens, prompt_tokens))
     }
 
-    fn run_iter_from_tokens<'a>(
-        &'a self,
+    fn run_iter_from_tokens(
+        &self,
         tokens: Vec<u32>,
         prompt_token_count: usize,
     ) -> crate::pipelines::text_generation::streaming::Tokens<
-        impl Iterator<Item = Result<String>> + Send + 'a,
-    >
-    where
-        M: Send + 'a,
-    {
+        impl Iterator<Item = Result<String>> + Send + '_,
+    > {
         let (stats, inner) = self
             .base
             .token_iterator_with_prompt_count(tokens, Some(prompt_token_count));
@@ -517,35 +579,69 @@ impl<M: TextGenerationModel + Send + Sync> TextGenerationPipeline<M> {
     }
 }
 
-impl<M: TextGenerationModel + ToggleableReasoning + Sync> TextGenerationPipeline<M> {
+// Tool-aware iterator requires ToolCalling on the model
+impl<C: ModelConfig> TextGenerationPipeline<C>
+where
+    C::Model: ToolCalling,
+{
+    /// Create a generic tool-aware streaming iterator.
+    ///
+    /// Uses the model's associated Parser type for streaming tool detection.
+    /// Works with any model that implements `TextGenerationModel` and `ToolCalling`.
+    pub(crate) fn run_iter_with_tools_generic(
+        &self,
+        messages: Vec<Message>,
+    ) -> Result<GenericToolAwareIterator<'_, C>> {
+        let tools = self.active_tools();
+        let inner = self.run_iter_from_messages_owned(messages.clone())?;
+
+        Ok(GenericToolAwareIterator::new(
+            self,
+            messages,
+            tools,
+            Box::new(inner),
+        ))
+    }
+}
+
+impl<C: ModelConfig> TextGenerationPipeline<C>
+where
+    C::Model: ToggleableReasoning + Sync,
+{
     /// Enable or disable reasoning/thinking mode for models that support it.
     pub fn enable_reasoning(&self, enable: bool) {
         self.base.model.enable_reasoning(enable)
     }
 }
 
-/// A tool execution result with name and raw content.
-struct ToolResult {
+/// A tool execution result with name, arguments, and result.
+pub(crate) struct ToolResult {
     name: String,
-    content: String,
+    arguments: serde_json::Value,
+    result: String,
 }
 
 impl ToolResult {
-    /// Format for user output
-    fn for_user(&self) -> String {
+    /// Format for user output (JSON)
+    pub(crate) fn for_user(&self) -> String {
+        let json = serde_json::json!({
+            "name": self.name,
+            "parameters": self.arguments,
+            "result": self.result
+        });
         format!(
-            "<tool_result name=\"{}\">\n{}\n</tool_result>",
-            self.name, self.content
+            "<tool_result>\n{}\n</tool_result>",
+            serde_json::to_string_pretty(&json).unwrap_or_else(|_| json.to_string())
         )
     }
 
     /// Format for model (raw content, template adds wrapping).
-    fn for_model(&self) -> Message {
-        Message::tool(&self.content)
+    pub(crate) fn for_model(&self) -> Message {
+        Message::tool(&self.result)
     }
 }
 
-impl<M: TextGenerationModel + Send + Sync> TextGenerationPipeline<M> {
+impl<C: ModelConfig> TextGenerationPipeline<C> {
     async fn execute_tool_calls(
         &self,
         tool_calls: Vec<ToolCallInvocation>,
@@ -571,7 +667,8 @@ impl<M: TextGenerationModel + Send + Sync> TextGenerationPipeline<M> {
                     Ok(result) => {
                         tool_results.push(ToolResult {
                             name: call.name.clone(),
-                            content: result.trim_end_matches('\n').to_string(),
+                            arguments: args,
+                            result: result.trim_end_matches('\n').to_string(),
                         });
                         break;
                     }
@@ -583,7 +680,8 @@ impl<M: TextGenerationModel + Send + Sync> TextGenerationPipeline<M> {
                                 ErrorStrategy::ReturnToModel => {
                                     tool_results.push(ToolResult {
                                         name: call.name.clone(),
-                                        content: format!("Error: {e}"),
+                                        arguments: args,
+                                        result: format!("Error: {e}"),
                                     });
                                     break;
                                 }
@@ -720,134 +818,168 @@ impl<M: TextGenerationModel + Send + Sync> TextGenerationPipeline<M> {
         Ok(tool_calls)
     }
 
-    /// Create a tool-aware streaming iterator for Qwen3.
-    fn run_iter_with_tools(&self, messages: Vec<Message>) -> Result<ToolAwareIterator<'_, M>> {
-        let tools = self.active_tools();
+    // ============ Llama-specific tool methods ============
 
-        // Create initial inner iterator using owned messages helper
-        let inner = self.run_iter_from_messages_owned(messages.clone())?;
+    /// Execute Llama-format tool calls.
+    async fn execute_llama_tool_calls(
+        &self,
+        tool_calls: Vec<LlamaToolCall>,
+        tools: &[Tool],
+    ) -> Result<Vec<ToolResult>> {
+        let mut tool_results = Vec::new();
 
-        Ok(ToolAwareIterator {
-            pipeline: self,
-            messages,
-            tools,
-            inner: Some(Box::new(inner)),
-            response_buffer: String::new(),
-            pending_output: None,
-            done: false,
-        })
-    }
-}
+        for call in tool_calls {
+            let available_tools: Vec<String> = tools.iter().map(|t| t.name.clone()).collect();
+            let tool = tools.iter().find(|t| t.name == call.name).ok_or_else(|| {
+                PipelineError::Tool(format!(
+                    "Tool '{}' not found. Registered tools: {}",
+                    call.name,
+                    available_tools.join(", ")
+                ))
+            })?;
 
-/// Iterator that handles tool calling during streaming generation.
-///
-/// Streams tokens in real-time while buffering for tool detection.
-struct ToolAwareIterator<'a, M: TextGenerationModel + Send + Sync> {
-    pipeline: &'a TextGenerationPipeline<M>,
-    messages: Vec<Message>,
-    tools: Vec<Tool>,
-    inner: Option<Box<dyn Iterator<Item = Result<String>> + Send + 'a>>,
-    response_buffer: String,
-    pending_output: Option<std::vec::IntoIter<String>>,
-    done: bool,
-}
+            let args = call.parameters.clone();
+            let mut attempts = 0u32;
 
-impl<M: TextGenerationModel + Send + Sync> Iterator for ToolAwareIterator<'_, M> {
-    type Item = Result<String>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            if self.done {
-                return None;
-            }
-
-            // Yield any pending tool output first
-            if let Some(ref mut pending) = self.pending_output {
-                if let Some(chunk) = pending.next() {
-                    return Some(Ok(chunk));
-                }
-                self.pending_output = None;
-            }
-
-            // Try to get next token from inner iterator
-            if let Some(ref mut inner) = self.inner {
-                if let Some(result) = inner.next() {
-                    // Buffer for tool detection, but yield immediately
-                    if let Ok(ref token) = result {
-                        self.response_buffer.push_str(token);
+            loop {
+                match tool.call(args.clone()).await {
+                    Ok(result) => {
+                        tool_results.push(ToolResult {
+                            name: call.name.clone(),
+                            arguments: args,
+                            result: result.trim_end_matches('\n').to_string(),
+                        });
+                        break;
                     }
-                    return Some(result);
-                }
-                // Inner iterator exhausted - drop inner to release borrow
-                self.inner = None;
-            }
-
-            // Inner exhausted - check for tool calls in buffered response
-            let tool_calls =
-                match TextGenerationPipeline::<M>::extract_tool_calls(&self.response_buffer) {
-                    Ok(calls) => calls,
                     Err(e) => {
-                        self.done = true;
-                        return Some(Err(e));
+                        attempts += 1;
+                        if attempts >= tool.max_retries() {
+                            match &self.tool_error_strategy {
+                                ErrorStrategy::Fail => return Err(e),
+                                ErrorStrategy::ReturnToModel => {
+                                    tool_results.push(ToolResult {
+                                        name: call.name.clone(),
+                                        arguments: args,
+                                        result: format!("Error: {e}"),
+                                    });
+                                    break;
+                                }
+                            }
+                        } else {
+                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                        }
                     }
+                }
+            }
+        }
+
+        Ok(tool_results)
+    }
+
+    /// Internal: Llama tool-calling completion flow (non-streaming).
+    async fn completion_with_tools_llama(&self, messages: &[Message]) -> Result<Output> {
+        let tools = self.registered_tools();
+        let mut messages = messages.to_vec();
+        let mut full_response = String::new();
+        let mut combined_stats = GenerationStats::new();
+        let mut is_first_call = true;
+
+        loop {
+            let templated = self.base.model.apply_chat_template(&messages, &tools)?;
+            let new_tokens = self
+                .base
+                .model_tokenizer
+                .encode(templated.as_str(), true)
+                .map_err(|e| {
+                    PipelineError::Tokenization(format!(
+                        "Tokenization failed on '{}...': {}",
+                        templated.chars().take(50).collect::<String>(),
+                        e
+                    ))
+                })?
+                .get_ids()
+                .to_vec();
+
+            let max_seq_len = self.base.model.get_max_seq_len();
+            let pending_tokens = new_tokens.len();
+
+            let (response, stats) =
+                if self.base.cache.lock().unwrap().current_seq_len() + pending_tokens > max_seq_len
+                {
+                    self.base.cache.lock().unwrap().reset();
+                    self.base.last_processed_tokens.lock().unwrap().clear();
+                    self.base.completion_from_tokens_with_stats(&new_tokens)?
+                } else if self.base.can_reuse_cache(&new_tokens) {
+                    let prefix_len = self.base.last_processed_tokens.lock().unwrap().len();
+                    let new_portion = &new_tokens[prefix_len..];
+                    let res = self
+                        .base
+                        .completion_from_tokens_with_prompt_stats(new_portion, new_tokens.len())?;
+                    *self.base.last_processed_tokens.lock().unwrap() = new_tokens;
+                    res
+                } else {
+                    self.base.cache.lock().unwrap().reset();
+                    let res = self.base.completion_from_tokens_with_stats(&new_tokens)?;
+                    *self.base.last_processed_tokens.lock().unwrap() = new_tokens;
+                    res
                 };
 
-            if tool_calls.is_empty() {
-                // No tool calls - we're done
-                self.done = true;
-                return None;
+            // Accumulate stats from this generation
+            if is_first_call {
+                combined_stats = stats;
+                is_first_call = false;
+            } else {
+                combined_stats.accumulate(&stats);
             }
 
-            // Execute tool calls
-            self.messages
-                .push(Message::assistant(&self.response_buffer));
-            self.response_buffer.clear();
+            // Extract Llama-format tool calls (raw JSON)
+            let tool_calls = llama_tool_parser::extract_tool_calls(&response);
 
-            let tool_results = match futures::executor::block_on(
-                self.pipeline.execute_tool_calls(tool_calls, &self.tools),
-            ) {
-                Ok(results) => results,
-                Err(e) => {
-                    self.done = true;
-                    return Some(Err(e));
+            if !tool_calls.is_empty() {
+                messages.push(super::message::Message::assistant(&response));
+
+                // Emit wrapped tool calls in Qwen-compatible XML format
+                for call in &tool_calls {
+                    let json = serde_json::json!({
+                        "name": call.name,
+                        "arguments": call.parameters
+                    });
+                    let wrapped = format!(
+                        "<tool_call>\n{}\n</tool_call>\n",
+                        serde_json::to_string_pretty(&json).unwrap_or_else(|_| json.to_string())
+                    );
+                    full_response.push_str(&wrapped);
                 }
-            };
 
-            // Format tool results for output and model
-            let user_output: Vec<String> = tool_results.iter().map(|r| r.for_user()).collect();
-            let tool_output = format!("\n\n{}\n\n", user_output.join("\n"));
+                let tool_results = self.execute_llama_tool_calls(tool_calls, &tools).await?;
 
-            // Add raw results as tool messages for model
-            for result in tool_results {
-                self.messages.push(result.for_model());
+                // Add wrapped results to user output
+                let user_output: Vec<String> = tool_results.iter().map(|r| r.for_user()).collect();
+                full_response.push('\n');
+                full_response.push_str(&user_output.join("\n"));
+                full_response.push('\n');
+
+                // Add raw results as tool messages for model
+                for result in tool_results {
+                    messages.push(result.for_model());
+                }
+                continue;
+            } else {
+                let text = if !full_response.is_empty() {
+                    full_response.push('\n');
+                    full_response.push_str(&response);
+                    full_response
+                } else {
+                    response
+                };
+                // Finalize combined stats with total time
+                combined_stats.finalize();
+                return Ok(Output {
+                    text,
+                    stats: combined_stats,
+                });
             }
-
-            // Queue tool output to yield
-            self.pending_output = Some(vec![tool_output].into_iter());
-
-            // Create new inner iterator for continued generation
-            match self
-                .pipeline
-                .run_iter_from_messages_owned(self.messages.clone())
-            {
-                Ok(new_inner) => {
-                    self.inner = Some(Box::new(new_inner));
-                }
-                Err(e) => {
-                    self.done = true;
-                    return Some(Err(e));
-                }
-            }
-
-            // Continue loop to yield tool output then new tokens
         }
-    }
-}
-
-impl<'a, M: TextGenerationModel + Send + Sync> TokenIterator for ToolAwareIterator<'a, M> {
-    fn stats(&self) -> GenerationStats {
-        // Stats tracking is limited for tool-aware iteration
-        GenerationStats::new()
     }
 }
 
@@ -883,7 +1015,7 @@ impl TextGenerationPipeline<Qwen3> {
                 Input::Prompt(p) => vec![Message::user(p)],
                 Input::Messages(m) => m.to_vec(),
             };
-            Ok(Box::new(self.run_iter_with_tools(messages)?))
+            Ok(Box::new(self.run_iter_with_tools_generic(messages)?))
         } else {
             Ok(Box::new(self.run_iter_basic(input)?))
         }
@@ -906,6 +1038,43 @@ impl TextGenerationPipeline<Gemma3> {
     }
 }
 
+impl TextGenerationPipeline<Llama3_2> {
+    /// Generate a complete response synchronously.
+    ///
+    /// If tools are registered and enabled, they are executed automatically.
+    /// Tool functions (even async ones) are executed blocking since the model
+    /// must wait for tool results before continuing generation.
+    pub fn run<'a>(&self, input: impl Into<Input<'a>>) -> Result<Output> {
+        let tools = self.registered_tools();
+        if self.tools_enabled() && !tools.is_empty() {
+            let messages = match input.into() {
+                Input::Prompt(p) => vec![Message::user(p)],
+                Input::Messages(m) => m.to_vec(),
+            };
+            futures::executor::block_on(self.completion_with_tools_llama(&messages))
+        } else {
+            self.run_basic(input)
+        }
+    }
+
+    /// Iterate over tokens as they're generated.
+    ///
+    /// If tools are registered and enabled, they are executed automatically.
+    /// Call `.stats()` after iteration to get generation statistics.
+    pub fn run_iter<'a>(&'a self, input: impl Into<Input<'a>>) -> Result<BoxedTokenIterator<'a>> {
+        let tools = self.registered_tools();
+        if self.tools_enabled() && !tools.is_empty() {
+            let messages = match input.into() {
+                Input::Prompt(p) => vec![Message::user(p)],
+                Input::Messages(m) => m.to_vec(),
+            };
+            Ok(Box::new(self.run_iter_with_tools_generic(messages)?))
+        } else {
+            Ok(Box::new(self.run_iter_basic(input)?))
+        }
+    }
+}
+
 // ============ TextGeneration trait impls (for dynamic dispatch) ============
 
 impl TextGeneration for TextGenerationPipeline<Qwen3> {
@@ -923,7 +1092,9 @@ impl TextGeneration for TextGenerationPipeline<Qwen3> {
         // Use Qwen3's inherent run_iter which handles tool execution
         let tools = self.registered_tools();
         if self.tools_enabled() && !tools.is_empty() {
-            Ok(Box::new(self.run_iter_with_tools(messages.to_vec())?))
+            Ok(Box::new(
+                self.run_iter_with_tools_generic(messages.to_vec())?,
+            ))
         } else {
             Ok(Box::new(self.run_iter_basic(messages)?))
         }
@@ -1013,6 +1184,314 @@ impl TextGeneration for TextGenerationPipeline<Gemma3> {
     }
 }
 
+impl TextGeneration for TextGenerationPipeline<Llama3_2> {
+    fn run(&self, messages: &[Message]) -> Result<Output> {
+        // Use Llama3_2's inherent run which handles tool execution
+        let tools = self.registered_tools();
+        if self.tools_enabled() && !tools.is_empty() {
+            futures::executor::block_on(self.completion_with_tools_llama(messages))
+        } else {
+            self.run_basic(messages)
+        }
+    }
+
+    fn run_iter<'a>(&'a self, messages: &'a [Message]) -> Result<BoxedTokenIterator<'a>> {
+        // Use Llama3_2's inherent run_iter which handles tool execution
+        let tools = self.registered_tools();
+        if self.tools_enabled() && !tools.is_empty() {
+            Ok(Box::new(
+                self.run_iter_with_tools_generic(messages.to_vec())?,
+            ))
+        } else {
+            Ok(Box::new(self.run_iter_basic(messages)?))
+        }
+    }
+
+    fn supports_tools(&self) -> bool {
+        true
+    }
+
+    fn register_tool(&self, tool: Tool) {
+        TextGenerationPipeline::register_tool(self, tool)
+    }
+
+    fn unregister_tool(&self, name: &str) {
+        TextGenerationPipeline::unregister_tool(self, name)
+    }
+
+    fn clear_tools(&self) {
+        TextGenerationPipeline::clear_tools(self)
+    }
+
+    fn registered_tools(&self) -> Vec<Tool> {
+        TextGenerationPipeline::registered_tools(self)
+    }
+
+    fn enable_tools(&self, enable: bool) {
+        TextGenerationPipeline::enable_tools(self, enable)
+    }
+
+    fn tools_enabled(&self) -> bool {
+        TextGenerationPipeline::tools_enabled(self)
+    }
+
+    fn clear_cache(&self) {
+        TextGenerationPipeline::clear_cache(self)
+    }
+}
+
+// ============ OLMo-3 ============
+
+impl TextGenerationPipeline<Olmo3> {
+    /// Generate a complete response synchronously.
+    ///
+    /// If tools are registered and enabled, they are executed automatically.
+    pub fn run<'a>(&self, input: impl Into<Input<'a>>) -> Result<Output> {
+        let tools = self.registered_tools();
+        if self.tools_enabled() && !tools.is_empty() {
+            let messages = match input.into() {
+                Input::Prompt(p) => vec![Message::user(p)],
+                Input::Messages(m) => m.to_vec(),
+            };
+            futures::executor::block_on(self.completion_with_tools_olmo3(&messages))
+        } else {
+            self.run_basic(input)
+        }
+    }
+
+    /// Iterate over tokens as they're generated.
+    ///
+    /// Call `.stats()` after iteration to get generation statistics.
+    pub fn run_iter<'a>(&'a self, input: impl Into<Input<'a>>) -> Result<BoxedTokenIterator<'a>> {
+        let tools = self.active_tools();
+        if !tools.is_empty() {
+            let messages = match input.into() {
+                Input::Prompt(p) => vec![Message::user(p)],
+                Input::Messages(m) => m.to_vec(),
+            };
+            Ok(Box::new(self.run_iter_with_tools_olmo3(messages)?))
+        } else {
+            Ok(Box::new(self.run_iter_basic(input)?))
+        }
+    }
+
+    /// Create a tool-aware streaming iterator for OLMo-3.
+    fn run_iter_with_tools_olmo3(
+        &self,
+        messages: Vec<Message>,
+    ) -> Result<GenericToolAwareIterator<'_, Olmo3>> {
+        self.run_iter_with_tools_generic(messages)
+    }
+
+    /// Execute OLMo-3 format tool calls.
+    async fn execute_olmo3_tool_calls(
+        &self,
+        tool_calls: Vec<Olmo3ToolCall>,
+        tools: &[Tool],
+    ) -> Result<Vec<ToolResult>> {
+        let mut tool_results = Vec::new();
+
+        for call in tool_calls {
+            let available_tools: Vec<String> = tools.iter().map(|t| t.name.clone()).collect();
+            let tool = tools.iter().find(|t| t.name == call.name).ok_or_else(|| {
+                PipelineError::Tool(format!(
+                    "Tool '{}' not found. Registered tools: {}",
+                    call.name,
+                    available_tools.join(", ")
+                ))
+            })?;
+
+            let args = call.arguments.clone();
+            let mut attempts = 0u32;
+
+            loop {
+                match tool.call(args.clone()).await {
+                    Ok(result) => {
+                        tool_results.push(ToolResult {
+                            name: call.name.clone(),
+                            arguments: args,
+                            result: result.trim_end_matches('\n').to_string(),
+                        });
+                        break;
+                    }
+                    Err(e) => {
+                        attempts += 1;
+                        if attempts >= tool.max_retries() {
+                            match &self.tool_error_strategy {
+                                ErrorStrategy::Fail => return Err(e),
+                                ErrorStrategy::ReturnToModel => {
+                                    tool_results.push(ToolResult {
+                                        name: call.name.clone(),
+                                        arguments: args,
+                                        result: format!("Error: {e}"),
+                                    });
+                                    break;
+                                }
+                            }
+                        } else {
+                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(tool_results)
+    }
+
+    /// Internal: OLMo-3 tool-calling completion flow.
+    async fn completion_with_tools_olmo3(&self, messages: &[Message]) -> Result<Output> {
+        let tools = self.registered_tools();
+        let mut messages = messages.to_vec();
+        let mut full_response = String::new();
+        let mut combined_stats = GenerationStats::new();
+        let mut is_first_call = true;
+
+        loop {
+            let templated = self.base.model.apply_chat_template(&messages, &tools)?;
+            let new_tokens = self
+                .base
+                .model_tokenizer
+                .encode(templated.as_str(), true)
+                .map_err(|e| {
+                    PipelineError::Tokenization(format!(
+                        "Tokenization failed on '{}...': {}",
+                        templated.chars().take(50).collect::<String>(),
+                        e
+                    ))
+                })?
+                .get_ids()
+                .to_vec();
+
+            let max_seq_len = self.base.model.get_max_seq_len();
+            let pending_tokens = new_tokens.len();
+
+            let (response, stats) =
+                if self.base.cache.lock().unwrap().current_seq_len() + pending_tokens > max_seq_len
+                {
+                    self.base.cache.lock().unwrap().reset();
+                    self.base.last_processed_tokens.lock().unwrap().clear();
+                    self.base.completion_from_tokens_with_stats(&new_tokens)?
+                } else if self.base.can_reuse_cache(&new_tokens) {
+                    let prefix_len = self.base.last_processed_tokens.lock().unwrap().len();
+                    let new_portion = &new_tokens[prefix_len..];
+                    let res = self
+                        .base
+                        .completion_from_tokens_with_prompt_stats(new_portion, new_tokens.len())?;
+                    *self.base.last_processed_tokens.lock().unwrap() = new_tokens;
+                    res
+                } else {
+                    self.base.cache.lock().unwrap().reset();
+                    let res = self.base.completion_from_tokens_with_stats(&new_tokens)?;
+                    *self.base.last_processed_tokens.lock().unwrap() = new_tokens;
+                    res
+                };
+
+            // Accumulate stats
+            if is_first_call {
+                combined_stats = stats;
+                is_first_call = false;
+            } else {
+                combined_stats.accumulate(&stats);
+            }
+
+            // Extract OLMo-3 format tool calls
+            let tool_calls = olmo3_tool_parser::extract_tool_calls(&response);
+
+            if !tool_calls.is_empty() {
+                messages.push(Message::assistant(&response));
+
+                // Emit wrapped tool calls in XML format for output
+                for call in &tool_calls {
+                    let json = serde_json::json!({
+                        "name": call.name,
+                        "arguments": call.arguments
+                    });
+                    let wrapped = format!(
+                        "<tool_call>\n{}\n</tool_call>\n",
+                        serde_json::to_string_pretty(&json).unwrap_or_else(|_| json.to_string())
+                    );
+                    full_response.push_str(&wrapped);
+                }
+
+                let tool_results = self.execute_olmo3_tool_calls(tool_calls, &tools).await?;
+
+                // Add wrapped results to user output
+                let user_output: Vec<String> = tool_results.iter().map(|r| r.for_user()).collect();
+                full_response.push('\n');
+                full_response.push_str(&user_output.join("\n"));
+                full_response.push('\n');
+
+                // Add raw results as tool messages for model
+                for result in tool_results {
+                    messages.push(result.for_model());
+                }
+                continue;
+            } else {
+                let text = if !full_response.is_empty() {
+                    full_response.push('\n');
+                    full_response.push_str(&response);
+                    full_response
+                } else {
+                    response
+                };
+                combined_stats.finalize();
+                return Ok(Output {
+                    text,
+                    stats: combined_stats,
+                });
+            }
+        }
+    }
+}
+
+impl TextGeneration for TextGenerationPipeline<Olmo3> {
+    fn run(&self, messages: &[Message]) -> Result<Output> {
+        let tools = self.registered_tools();
+        if self.tools_enabled() && !tools.is_empty() {
+            futures::executor::block_on(self.completion_with_tools_olmo3(messages))
+        } else {
+            self.run_basic(messages)
+        }
+    }
+
+    fn run_iter<'a>(&'a self, messages: &'a [Message]) -> Result<BoxedTokenIterator<'a>> {
+        <TextGenerationPipeline<Olmo3>>::run_iter(self, messages)
+    }
+
+    fn supports_tools(&self) -> bool {
+        true
+    }
+
+    fn register_tool(&self, tool: Tool) {
+        TextGenerationPipeline::register_tool(self, tool)
+    }
+
+    fn unregister_tool(&self, name: &str) {
+        TextGenerationPipeline::unregister_tool(self, name)
+    }
+
+    fn clear_tools(&self) {
+        TextGenerationPipeline::clear_tools(self)
+    }
+
+    fn registered_tools(&self) -> Vec<Tool> {
+        TextGenerationPipeline::registered_tools(self)
+    }
+
+    fn enable_tools(&self, enable: bool) {
+        TextGenerationPipeline::enable_tools(self, enable)
+    }
+
+    fn tools_enabled(&self) -> bool {
+        TextGenerationPipeline::tools_enabled(self)
+    }
+
+    fn clear_cache(&self) {
+        TextGenerationPipeline::clear_cache(self)
+    }
+}
+
 // ============ Internal types ============
 
 #[derive(Deserialize)]
@@ -1022,22 +1501,17 @@ struct RawToolCall {
     arguments: Option<serde_json::Value>,
 }
 
-struct ToolCallInvocation {
-    name: String,
-    arguments: serde_json::Value,
-}
-
 #[cfg(test)]
 #[cfg(feature = "cuda")]
 mod cache_tests {
     use crate::error::Result;
-    use crate::text_generation::{Qwen3Size, TextGenerationPipelineBuilder};
+    use crate::text_generation::{Qwen3, TextGenerationPipelineBuilder};
 
     #[tokio::test]
     async fn multiple_pipelines_work_independently() -> Result<()> {
         let mut pipelines = Vec::new();
         for _ in 0..3 {
-            let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
+            let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3::Size0_6B)
                 .cuda(0)
                 .temperature(0.7)
                 .max_len(10)

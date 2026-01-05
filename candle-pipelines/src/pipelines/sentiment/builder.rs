@@ -1,6 +1,6 @@
-use super::model::SentimentAnalysisModel;
 use super::pipeline::SentimentAnalysisPipeline;
 use crate::error::Result;
+use crate::models::capabilities::SentimentAnalysisModel;
 use crate::pipelines::cache::ModelOptions;
 use crate::pipelines::utils::{BasePipelineBuilder, DeviceRequest, StandardPipelineBuilder};
 

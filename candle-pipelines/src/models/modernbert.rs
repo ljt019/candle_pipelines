@@ -10,9 +10,10 @@ use std::collections::HashMap;
 use tokenizers::Tokenizer;
 
 use crate::error::{PipelineError, Result};
-use crate::pipelines::fill_mask::model::FillMaskPrediction;
-use crate::pipelines::sentiment::model::SentimentResult;
-use crate::pipelines::zero_shot::model::LabelScores;
+use crate::models::capabilities::{
+    FillMaskModel, FillMaskPrediction, LabelScores, SentimentAnalysisModel, SentimentResult,
+    ZeroShotClassificationModel,
+};
 
 /// Available ModernBERT model sizes.
 #[derive(Debug, Clone, Copy)]
@@ -108,7 +109,7 @@ impl FillMaskModernBertModel {
     }
 }
 
-impl crate::pipelines::fill_mask::model::FillMaskModel for FillMaskModernBertModel {
+impl FillMaskModel for FillMaskModernBertModel {
     type Options = ModernBertSize;
 
     fn new(options: Self::Options, device: Device) -> Result<Self> {
@@ -629,7 +630,7 @@ impl ZeroShotModernBertModel {
     }
 }
 
-impl crate::pipelines::zero_shot::model::ZeroShotClassificationModel for ZeroShotModernBertModel {
+impl ZeroShotClassificationModel for ZeroShotModernBertModel {
     type Options = ModernBertSize;
 
     fn new(options: Self::Options, device: Device) -> Result<Self> {
@@ -765,7 +766,7 @@ impl SentimentModernBertModel {
     }
 }
 
-impl crate::pipelines::sentiment::model::SentimentAnalysisModel for SentimentModernBertModel {
+impl SentimentAnalysisModel for SentimentModernBertModel {
     type Options = ModernBertSize;
 
     fn new(options: Self::Options, device: Device) -> Result<Self> {

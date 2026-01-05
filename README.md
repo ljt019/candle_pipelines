@@ -50,6 +50,32 @@ Generate text for various applications. Supports completions, tool calling, and 
 
 [→ View on HuggingFace](https://huggingface.co/collections/google/gemma-3-release-67c6c6f89c4f76621268bb6d)
 
+---
+
+**Llama 3.2**
+*Meta's compact instruction-tuned models*
+
+```markdown
+ Parameter Sizes:
+├── 1B
+└── 3B
+```
+
+[→ View on HuggingFace](https://huggingface.co/collections/meta-llama/llama-32-66f448ffc8c32f949b04c8cf)
+
+---
+
+**OLMo-3**
+*Allen AI's open language models with tool support*
+
+```markdown
+ Parameter Sizes:
+├── 7B
+└── 32B
+```
+
+[→ View on HuggingFace](https://huggingface.co/collections/allenai/olmo-2-67b8b5f3e1b4c2b6c2b1b0a0)
+
 ### Analysis Pipelines
 
 ModernBERT powers three specialized analysis tasks with shared architecture:
@@ -116,11 +142,11 @@ Use the `run` method for straightforward text generation from a single prompt st
 
 ```rust
 use candle_pipelines::error::Result;
-use candle_pipelines::text_generation::{TextGenerationPipelineBuilder, Qwen3Size};
+use candle_pipelines::text_generation::{TextGenerationPipelineBuilder, Qwen3};
 
 fn main() -> Result<()> {
     // 1. Create the pipeline
-    let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
+    let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3::Size0_6B)
         .temperature(0.7)
         .top_k(40)
         .build()?;
@@ -147,11 +173,11 @@ The `Message` struct represents a single message in a chat and has a `role` (sys
 
 ```rust
 use candle_pipelines::error::Result;
-use candle_pipelines::text_generation::{TextGenerationPipelineBuilder, Qwen3Size, Message};
+use candle_pipelines::text_generation::{TextGenerationPipelineBuilder, Qwen3, Message};
 
 fn main() -> Result<()> {
     // 1. Create the pipeline
-    let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
+    let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3::Size0_6B)
         .temperature(0.7)
         .top_k(40)
         .build()?;
@@ -177,7 +203,7 @@ Using tools with models is also made extremely easy, you just define tools using
 ```rust
 use candle_pipelines::error::Result;
 use candle_pipelines::text_generation::{tool, tools, ErrorStrategy};
-use candle_pipelines::text_generation::{Qwen3Size, TextGenerationPipelineBuilder};
+use candle_pipelines::text_generation::{Qwen3, TextGenerationPipelineBuilder};
 
 // 1. Define tools using the #[tool] macro
 #[tool(retries = 5)]  // optional: configure retry attempts
@@ -194,7 +220,7 @@ fn get_temperature(city: String) -> Result<String> {
 
 fn main() -> Result<()> {
     // 2. Create the pipeline
-    let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
+    let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3::Size0_6B)
         .max_len(8192)
         .tool_error_strategy(ErrorStrategy::ReturnToModel)  // let model handle tool errors
         .build()?;
@@ -230,12 +256,12 @@ Use `run_iter` to receive tokens as they're generated. Fully sync - no async run
 
 ```rust
 use candle_pipelines::error::Result;
-use candle_pipelines::text_generation::{TextGenerationPipelineBuilder, Qwen3Size};
+use candle_pipelines::text_generation::{TextGenerationPipelineBuilder, Qwen3};
 use std::io::Write;
 
 fn main() -> Result<()> {
     // 1. Create the pipeline
-    let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
+    let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3::Size0_6B)
         .max_len(1024)
         .build()?;
 
@@ -260,46 +286,47 @@ fn main() -> Result<()> {
 
 #### XML Parsing for Structured Output
 
-Use `XmlParserBuilder` to parse structured outputs from models - useful for tool calls and reasoning traces.
+Use `XmlParser` to parse structured outputs from models - useful for reasoning traces like `<think>` blocks.
 
 ```rust
 use candle_pipelines::error::Result;
 use candle_pipelines::text_generation::{
-    Qwen3Size, TagParts, TextGenerationPipelineBuilder, XmlParserBuilder,
+    Event, Qwen3, TagPart, TextGenerationPipelineBuilder, XmlTag,
 };
 
+// 1. Define which tags to parse using an enum
+#[derive(Debug, Clone, PartialEq, XmlTag)]
+enum Tags {
+    Think,      // matches <think>
+    Answer,     // matches <answer>
+}
+
 fn main() -> Result<()> {
-    // 1. Build a regular pipeline
-    let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
+    // 2. Build a regular pipeline
+    let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3::Size0_6B)
         .max_len(1024)
         .build()?;
 
-    // 2. Create XML parser for specific tags
-    let parser = XmlParserBuilder::new()
-        .register_tag("think")
-        .register_tag("tool_result")
-        .register_tag("tool_call")
-        .build();
+    // 3. Create parser from tag enum
+    let parser = Tags::parser();
 
-    // 3. Get token iterator
-    let tokens = pipeline.run_iter("Explain your reasoning step by step.")?;
+    // 4. Get token iterator and wrap with XML parser
+    let tokens = pipeline.run_iter("Think step by step, then answer.")?;
+    let events = parser.parse_iter(tokens);
 
-    // 4. Wrap with XML parser
-    let events = parser.parse(tokens);
-
-    // 5. Process events
+    // 5. Process events using pattern matching
     for event in events {
-        match event.tag() {
-            Some("think") => match event.part() {
-                TagParts::Start => println!("[THINKING]"),
-                TagParts::Content => print!("{}", event.get_content()),
-                TagParts::End => println!("[END THINKING]"),
+        match event? {
+            Event::Tag { tag: Tags::Think, part } => match part {
+                TagPart::Opened { .. } => println!("[THINKING]"),
+                TagPart::Content { text } => print!("{}", text),
+                TagPart::Closed { .. } => println!("[END THINKING]"),
             },
-            None => match event.part() {
-                TagParts::Content => print!("{}", event.get_content()),
+            Event::Tag { tag: Tags::Answer, part } => match part {
+                TagPart::Content { text } => print!("{}", text),
                 _ => {}
             },
-            _ => {}
+            Event::Content { text } => print!("{}", text),
         }
     }
 

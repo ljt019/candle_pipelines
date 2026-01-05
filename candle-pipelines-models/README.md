@@ -52,3 +52,11 @@ cache1.reset(); // Clear for new conversation
 ### `quantized_gemma3`
 
 Same API as qwen3.
+
+### `quantized_llama`
+
+Same API as qwen3.
+
+### `quantized_olmo3`
+
+Same API as qwen3.

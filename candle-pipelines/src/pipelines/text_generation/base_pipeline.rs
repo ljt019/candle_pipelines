@@ -1,23 +1,27 @@
-use super::model::TextGenerationModel;
 use super::params::{apply_repeat_penalty, initialize_logits_processor, GenerationParams};
-use super::stats::GenerationStats;
 use crate::error::{PipelineError, Result};
+use crate::models::capabilities::{ModelConfig, TextGenerationModel};
+use crate::pipelines::stats::GenerationStats;
+use candle_core::Result as CandleResult;
 use candle_core::Tensor;
 use std::sync::{Arc, Mutex};
 use tokenizers::Tokenizer;
 
-pub struct BasePipeline<M: TextGenerationModel> {
-    pub model: Arc<M>,
+pub struct BasePipeline<C: ModelConfig> {
+    pub model: Arc<C::Model>,
     pub model_tokenizer: Tokenizer,
-    pub cache: Arc<Mutex<M::Cache>>,
+    pub cache: Arc<Mutex<<C::Model as TextGenerationModel>::Cache>>,
     pub gen_params: Arc<Mutex<GenerationParams>>,
     pub device: candle_core::Device,
     pub last_processed_tokens: Arc<Mutex<Vec<u32>>>,
 }
 
-impl<M: TextGenerationModel + Sync> BasePipeline<M> {
+impl<C: ModelConfig> BasePipeline<C>
+where
+    C::Model: Sync,
+{
     pub fn new(
-        model: Arc<M>,
+        model: Arc<C::Model>,
         gen_params: GenerationParams,
         device: candle_core::Device,
     ) -> Result<Self> {
@@ -93,14 +97,12 @@ impl<M: TextGenerationModel + Sync> BasePipeline<M> {
             }?;
             let logits = logits.squeeze(0)?;
 
-            let start_at = generated_tokens.len().saturating_sub(params.repeat_last_n);
-            let penalty_context = &generated_tokens[start_at..];
-
-            let logits = if params.repeat_penalty <= 1. || penalty_context.is_empty() {
-                logits
-            } else {
-                apply_repeat_penalty(&logits, params.repeat_penalty, penalty_context)?
-            };
+            let logits = apply_repeat_penalty_if_needed(
+                logits,
+                &generated_tokens,
+                params.repeat_penalty,
+                params.repeat_last_n,
+            )?;
 
             next_token = logits_processor.sample(&logits)?;
             generated_tokens.push(next_token);
@@ -128,9 +130,9 @@ impl<M: TextGenerationModel + Sync> BasePipeline<M> {
         &self,
         input_tokens: Vec<u32>,
         prompt_token_count: Option<usize>,
-    ) -> (Arc<Mutex<GenerationStats>>, TokenIterator<M>)
+    ) -> (Arc<Mutex<GenerationStats>>, TokenIterator<C>)
     where
-        M: Send + Sync,
+        C::Model: Send + Sync,
     {
         let stats = Arc::new(Mutex::new(GenerationStats::new()));
         stats
@@ -153,7 +155,7 @@ impl<M: TextGenerationModel + Sync> BasePipeline<M> {
 }
 
 /// Sync iterator that generates tokens one at a time.
-pub struct TokenIterator<M: TextGenerationModel> {
+pub struct TokenIterator<C: ModelConfig> {
     // State
     initialized: bool,
     finished: bool,
@@ -170,18 +172,21 @@ pub struct TokenIterator<M: TextGenerationModel> {
 
     // Shared resources
     device: candle_core::Device,
-    model: Arc<M>,
-    cache: Arc<Mutex<M::Cache>>,
+    model: Arc<C::Model>,
+    cache: Arc<Mutex<<C::Model as TextGenerationModel>::Cache>>,
     stats: Arc<Mutex<GenerationStats>>,
 }
 
-impl<M: TextGenerationModel + Send + Sync> TokenIterator<M> {
+impl<C: ModelConfig> TokenIterator<C>
+where
+    C::Model: Send + Sync,
+{
     fn new(
         input_tokens: Vec<u32>,
         device: candle_core::Device,
-        model: Arc<M>,
+        model: Arc<C::Model>,
         tokenizer: Tokenizer,
-        cache: Arc<Mutex<M::Cache>>,
+        cache: Arc<Mutex<<C::Model as TextGenerationModel>::Cache>>,
         gen_params: Arc<Mutex<GenerationParams>>,
         stats: Arc<Mutex<GenerationStats>>,
     ) -> Self {
@@ -271,17 +276,12 @@ impl<M: TextGenerationModel + Send + Sync> TokenIterator<M> {
         }?;
         let logits = logits.squeeze(0)?;
 
-        let start_at = self
-            .generated
-            .len()
-            .saturating_sub(self.params.repeat_last_n);
-        let penalty_context = &self.generated[start_at..];
-
-        let logits = if self.params.repeat_penalty <= 1. || penalty_context.is_empty() {
-            logits
-        } else {
-            apply_repeat_penalty(&logits, self.params.repeat_penalty, penalty_context)?
-        };
+        let logits = apply_repeat_penalty_if_needed(
+            logits,
+            &self.generated,
+            self.params.repeat_penalty,
+            self.params.repeat_last_n,
+        )?;
 
         self.next_token = self.logits_processor.sample(&logits)?;
         self.generated.push(self.next_token);
@@ -303,7 +303,10 @@ impl<M: TextGenerationModel + Send + Sync> TokenIterator<M> {
     }
 }
 
-impl<M: TextGenerationModel + Send + Sync> Iterator for TokenIterator<M> {
+impl<C: ModelConfig> Iterator for TokenIterator<C>
+where
+    C::Model: Send + Sync,
+{
     type Item = Result<String>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -348,4 +351,30 @@ impl<M: TextGenerationModel + Send + Sync> Iterator for TokenIterator<M> {
             }
         }
     }
+}
+
+/// Apply repeat penalty if configured, otherwise return logits unchanged.
+fn apply_repeat_penalty_if_needed(
+    logits: Tensor,
+    generated_tokens: &[u32],
+    repeat_penalty: Option<f32>,
+    repeat_last_n: Option<usize>,
+) -> CandleResult<Tensor> {
+    let Some(penalty) = repeat_penalty else {
+        return Ok(logits);
+    };
+
+    if penalty <= 1.0 {
+        return Ok(logits);
+    }
+
+    let last_n = repeat_last_n.unwrap_or(64);
+    let start_at = generated_tokens.len().saturating_sub(last_n);
+    let penalty_context = &generated_tokens[start_at..];
+
+    if penalty_context.is_empty() {
+        return Ok(logits);
+    }
+
+    apply_repeat_penalty(&logits, penalty, penalty_context)
 }

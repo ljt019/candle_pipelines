@@ -1,12 +1,12 @@
 use std::io::Write;
 
 use candle_pipelines::error::Result;
-use candle_pipelines::text_generation::{Qwen3Size, TextGenerationPipelineBuilder};
+use candle_pipelines::text_generation::{Qwen3, TextGenerationPipelineBuilder};
 
 fn main() -> Result<()> {
     // Start by creating the pipeline, using the builder to configure any generation parameters.
     // Token iteration is fully sync - no async runtime needed.
-    let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
+    let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3::Size0_6B)
         .max_len(1024)
         .cuda(0)
         .min_p(0.1)

@@ -1,5 +1,7 @@
 use serde::Deserialize;
+use std::path::PathBuf;
 use std::time::Duration;
+use tokenizers::Tokenizer;
 
 use crate::error::{PipelineError, Result};
 
@@ -13,8 +15,6 @@ pub struct GenerationConfig {
     pub repeat_last_n: Option<usize>,
     pub eos_token_ids: Vec<u64>,
 }
-use std::path::PathBuf;
-use tokenizers::Tokenizer;
 
 #[derive(Debug, Clone)]
 pub struct HfLoader {

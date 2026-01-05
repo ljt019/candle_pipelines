@@ -9,20 +9,20 @@ use std::sync::{Arc, Mutex};
 /// For async/web server integration, wrap with `tokio::task::spawn_blocking`.
 pub struct Tokens<I> {
     inner: I,
-    stats: Arc<Mutex<crate::pipelines::text_generation::stats::GenerationStats>>,
+    stats: Arc<Mutex<crate::pipelines::stats::GenerationStats>>,
 }
 
 impl<I> Tokens<I> {
     pub(crate) fn new(
         inner: I,
-        stats: Arc<Mutex<crate::pipelines::text_generation::stats::GenerationStats>>,
+        stats: Arc<Mutex<crate::pipelines::stats::GenerationStats>>,
     ) -> Self {
         Self { inner, stats }
     }
 
     /// Get generation statistics.
     #[allow(dead_code)]
-    pub fn stats(&self) -> crate::pipelines::text_generation::stats::GenerationStats {
+    pub fn stats(&self) -> crate::pipelines::stats::GenerationStats {
         self.stats.lock().unwrap().clone()
     }
 }
@@ -42,7 +42,7 @@ impl<I> crate::pipelines::text_generation::pipeline::TokenIterator for Tokens<I>
 where
     I: Iterator<Item = Result<String>> + Send,
 {
-    fn stats(&self) -> crate::pipelines::text_generation::stats::GenerationStats {
+    fn stats(&self) -> crate::pipelines::stats::GenerationStats {
         self.stats.lock().unwrap().clone()
     }
 }

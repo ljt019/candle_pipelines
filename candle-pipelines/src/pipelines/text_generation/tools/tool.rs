@@ -1,3 +1,5 @@
+//! Tool definition and execution.
+
 use crate::error::Result;
 use futures::future::BoxFuture;
 use std::sync::Arc;
@@ -8,15 +10,9 @@ pub enum ErrorStrategy {
     /// Stop generation and return the error to the caller.
     #[default]
     Fail,
-    /// Return the error message to the model so it can attempt to recover or retry. (Default)
+    /// Return the error message to the model so it can attempt to recover or retry.
     ReturnToModel,
 }
-
-/// Marker trait for models that support tool calling.
-///
-/// Models implementing this trait can parse `<tool_call>` tags and generate
-/// tool invocations. Tool storage and management is handled by the pipeline.
-pub trait ToolCalling {}
 
 /// Future type returned by tool functions.
 pub type ToolFuture = BoxFuture<'static, Result<String>>;
@@ -83,7 +79,7 @@ impl Tool {
         &self.schema
     }
 
-    /// Returns the tool's description (shown to the model). Constructed using the tool function's doc string.
+    /// Returns the tool's description (shown to the model).
     pub fn description(&self) -> &str {
         &self.description
     }

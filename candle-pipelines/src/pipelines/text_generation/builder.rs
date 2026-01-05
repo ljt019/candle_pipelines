@@ -1,25 +1,26 @@
-use super::params::GenerationParams;
+#![allow(private_bounds)]
+
+use super::params::{GenerationOverrides, GenerationParams};
+use super::pipeline::TextGenerationPipeline;
 use super::tools::ErrorStrategy;
 use crate::error::Result;
-use crate::models::{Gemma3, Gemma3Size, Qwen3, Qwen3Size};
+use crate::models::capabilities::{ModelConfig, TextGenerationModel};
+use crate::models::{Gemma3, Llama3_2, Olmo3, Qwen3};
 use crate::pipelines::cache::{global_cache, ModelOptions};
 use crate::pipelines::utils::{build_cache_key, DeviceRequest};
 
-use super::model::TextGenerationModel;
-use super::pipeline::TextGenerationPipeline;
-
-crate::pipelines::utils::impl_device_methods!(direct: TextGenerationPipelineBuilder<M: TextGenerationModel>);
+crate::pipelines::utils::impl_device_methods!(direct: TextGenerationPipelineBuilder<C: ModelConfig>);
 
 /// Builder for constructing [`TextGenerationPipeline`] instances.
 ///
 /// # Example
 ///
 /// ```rust,no_run
-/// use candle_pipelines::text_generation::{TextGenerationPipelineBuilder, Qwen3Size};
+/// use candle_pipelines::text_generation::{TextGenerationPipelineBuilder, Qwen3};
 ///
 /// # fn example() -> candle_pipelines::error::Result<()> {
 /// // Use .build() for sync or .build_async() for async model loading
-/// let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3Size::Size0_6B)
+/// let pipeline = TextGenerationPipelineBuilder::qwen3(Qwen3::Size0_6B)
 ///     .temperature(0.7)
 ///     .top_p(0.9)
 ///     .max_len(512)
@@ -27,20 +28,20 @@ crate::pipelines::utils::impl_device_methods!(direct: TextGenerationPipelineBuil
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Clone)]
-pub struct TextGenerationPipelineBuilder<M: TextGenerationModel> {
-    model_options: M::Options,
-    gen_params: GenerationParams,
+#[derive(Clone, Default)]
+pub struct TextGenerationPipelineBuilder<C: ModelConfig> {
+    config: C,
+    overrides: GenerationOverrides,
     device_request: DeviceRequest,
     tool_error_strategy: ErrorStrategy,
 }
 
-impl<M: TextGenerationModel> TextGenerationPipelineBuilder<M> {
-    /// Create a builder with the given model options.
-    pub fn new(options: M::Options) -> Self {
+impl<C: ModelConfig> TextGenerationPipelineBuilder<C> {
+    /// Create a builder with the given model configuration.
+    pub fn new(config: C) -> Self {
         Self {
-            model_options: options,
-            gen_params: GenerationParams::default(),
+            config,
+            overrides: GenerationOverrides::default(),
             device_request: DeviceRequest::Cpu,
             tool_error_strategy: ErrorStrategy::default(),
         }
@@ -54,13 +55,13 @@ impl<M: TextGenerationModel> TextGenerationPipelineBuilder<M> {
 
     /// Set sampling temperature. 0.0 = deterministic, higher = more random.
     pub fn temperature(mut self, temperature: f64) -> Self {
-        self.gen_params.temperature = temperature;
+        self.overrides.temperature = Some(temperature);
         self
     }
 
     /// Set penalty for repeating tokens. 1.0 = no penalty.
     pub fn repeat_penalty(mut self, repeat_penalty: f32) -> Self {
-        self.gen_params.repeat_penalty = repeat_penalty;
+        self.overrides.repeat_penalty = Some(repeat_penalty);
         self
     }
 
@@ -71,98 +72,113 @@ impl<M: TextGenerationModel> TextGenerationPipelineBuilder<M> {
 
     /// Set how many recent tokens to consider for repeat penalty.
     pub fn repeat_last_n(mut self, repeat_last_n: usize) -> Self {
-        self.gen_params.repeat_last_n = repeat_last_n;
+        self.overrides.repeat_last_n = Some(repeat_last_n);
         self
     }
 
     /// Set random seed for reproducible generation.
     pub fn seed(mut self, seed: u64) -> Self {
-        self.gen_params.seed = seed;
+        self.overrides.seed = Some(seed);
         self
     }
 
     /// Set maximum tokens to generate per turn.
     pub fn max_len(mut self, max_len: usize) -> Self {
-        self.gen_params.max_len = max_len;
+        self.overrides.max_len = Some(max_len);
         self
     }
 
     /// Alias for [`max_len`](Self::max_len).
     pub fn max_new_tokens(mut self, max_new_tokens: usize) -> Self {
-        self.gen_params.max_len = max_new_tokens;
+        self.overrides.max_len = Some(max_new_tokens);
         self
     }
 
     /// Set nucleus sampling threshold (0.0-1.0).
     pub fn top_p(mut self, top_p: f64) -> Self {
-        self.gen_params.top_p = Some(top_p.clamp(0.0, 1.0));
+        self.overrides.top_p = Some(top_p.clamp(0.0, 1.0));
         self
     }
 
     /// Only sample from the top k most likely tokens.
     pub fn top_k(mut self, top_k: usize) -> Self {
-        self.gen_params.top_k = Some(top_k);
+        self.overrides.top_k = Some(top_k);
         self
     }
 
     /// Filter tokens below min_p * max_probability (0.0-1.0).
     pub fn min_p(mut self, min_p: f64) -> Self {
-        self.gen_params.min_p = Some(min_p.clamp(0.0, 1.0));
+        self.overrides.min_p = Some(min_p.clamp(0.0, 1.0));
         self
     }
 
     /// Build the pipeline synchronously, downloading and loading the model if needed.
     ///
     /// Uses `ureq` for HTTP requests. For async builds with `reqwest`, use [`build_async`](Self::build_async).
-    pub fn build(self) -> Result<TextGenerationPipeline<M>>
+    pub fn build(self) -> Result<TextGenerationPipeline<C>>
     where
-        M: Send + Sync + 'static,
-        M::Options: ModelOptions + Clone,
+        C: ModelOptions + 'static,
+        C::Model: TextGenerationModel,
     {
         let device = self.device_request.resolve()?;
-        let cache_key = build_cache_key(&self.model_options, &device);
+        let cache_key = build_cache_key(&self.config, &device);
 
-        let options = self.model_options.clone();
+        let config = self.config;
         let device_for_model = device.clone();
-        let model =
-            global_cache().get_or_create(&cache_key, || M::new(options, device_for_model))?;
+        let model = global_cache().get_or_create(&cache_key, || config.build(device_for_model))?;
 
-        TextGenerationPipeline::new(model, self.gen_params, device, self.tool_error_strategy)
+        let gen_params = GenerationParams::resolve(model.get_generation_config(), &self.overrides)?;
+
+        TextGenerationPipeline::new(model, gen_params, device, self.tool_error_strategy)
     }
 
     /// Build the pipeline asynchronously, downloading and loading the model if needed.
     ///
     /// Uses `reqwest` for HTTP requests. For sync builds with `ureq`, use [`build`](Self::build).
-    pub async fn build_async(self) -> Result<TextGenerationPipeline<M>>
+    pub async fn build_async(self) -> Result<TextGenerationPipeline<C>>
     where
-        M: Send + Sync + 'static,
-        M::Options: ModelOptions + Clone,
+        C: ModelOptions + 'static,
+        C::Model: TextGenerationModel,
     {
         let device = self.device_request.resolve()?;
-        let cache_key = build_cache_key(&self.model_options, &device);
+        let cache_key = build_cache_key(&self.config, &device);
 
-        let options = self.model_options.clone();
+        let config = self.config;
         let device_for_model = device.clone();
         let model = global_cache()
-            .get_or_create_async(&cache_key, || async move {
-                M::new_async(options, device_for_model).await
-            })
+            .get_or_create_async(&cache_key, || async move { config.build(device_for_model) })
             .await?;
 
-        TextGenerationPipeline::new(model, self.gen_params, device, self.tool_error_strategy)
+        let gen_params = GenerationParams::resolve(model.get_generation_config(), &self.overrides)?;
+
+        TextGenerationPipeline::new(model, gen_params, device, self.tool_error_strategy)
     }
 }
 
 impl TextGenerationPipelineBuilder<Qwen3> {
     /// Create a builder for a Qwen 3 model.
-    pub fn qwen3(size: Qwen3Size) -> Self {
-        Self::new(size)
+    pub fn qwen3(config: Qwen3) -> Self {
+        Self::new(config)
     }
 }
 
 impl TextGenerationPipelineBuilder<Gemma3> {
     /// Create a builder for a Gemma 3 model.
-    pub fn gemma3(size: Gemma3Size) -> Self {
-        Self::new(size)
+    pub fn gemma3(config: Gemma3) -> Self {
+        Self::new(config)
+    }
+}
+
+impl TextGenerationPipelineBuilder<Llama3_2> {
+    /// Create a builder for a Llama 3.2 model.
+    pub fn llama3_2(config: Llama3_2) -> Self {
+        Self::new(config)
+    }
+}
+
+impl TextGenerationPipelineBuilder<Olmo3> {
+    /// Create a builder for an OLMo-3 model.
+    pub fn olmo3(config: Olmo3) -> Self {
+        Self::new(config)
     }
 }

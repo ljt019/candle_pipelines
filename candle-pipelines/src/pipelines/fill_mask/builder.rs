@@ -1,6 +1,6 @@
-use super::model::FillMaskModel;
 use super::pipeline::FillMaskPipeline;
 use crate::error::Result;
+use crate::models::capabilities::FillMaskModel;
 use crate::pipelines::cache::ModelOptions;
 use crate::pipelines::utils::{BasePipelineBuilder, DeviceRequest, StandardPipelineBuilder};
 

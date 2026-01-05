@@ -6,11 +6,14 @@ use minijinja_contrib::{add_to_environment, pycompat};
 use std::sync::Arc;
 use tokenizers::Tokenizer;
 
+use super::tool_parser::Qwen3Parser;
 use crate::error::{PipelineError, Result};
 
-/// Available Qwen 3 model sizes.
+/// Qwen 3 model configuration.
+///
+/// Use variants like `Qwen3::Size0_6B` to select model size.
 #[derive(Debug, Clone, Copy)]
-pub enum Qwen3Size {
+pub enum Qwen3 {
     /// 0.6 billion parameters.
     Size0_6B,
     /// 1.7 billion parameters.
@@ -25,30 +28,30 @@ pub enum Qwen3Size {
     Size32B,
 }
 
-impl Qwen3Size {
+impl Qwen3 {
     pub(crate) fn to_id(self) -> (String, String) {
         match self {
-            Qwen3Size::Size0_6B => (
+            Qwen3::Size0_6B => (
                 "unsloth/Qwen3-0.6B-GGUF".into(),
                 "Qwen3-0.6B-Q4_K_M.gguf".into(),
             ),
-            Qwen3Size::Size1_7B => (
+            Qwen3::Size1_7B => (
                 "unsloth/Qwen3-1.7B-GGUF".into(),
                 "Qwen3-1.7B-Q4_K_M.gguf".into(),
             ),
-            Qwen3Size::Size4B => (
+            Qwen3::Size4B => (
                 "unsloth/Qwen3-4B-GGUF".into(),
                 "Qwen3-4B-Q4_K_M.gguf".into(),
             ),
-            Qwen3Size::Size8B => (
+            Qwen3::Size8B => (
                 "unsloth/Qwen3-8B-GGUF".into(),
                 "Qwen3-8B-Q4_K_M.gguf".into(),
             ),
-            Qwen3Size::Size14B => (
+            Qwen3::Size14B => (
                 "unsloth/Qwen3-14B-GGUF".into(),
                 "Qwen3-14B-Q4_K_M.gguf".into(),
             ),
-            Qwen3Size::Size32B => (
+            Qwen3::Size32B => (
                 "unsloth/Qwen3-32B-GGUF".into(),
                 "Qwen3-32B-Q4_K_M.gguf".into(),
             ),
@@ -56,21 +59,21 @@ impl Qwen3Size {
     }
 }
 
-impl std::fmt::Display for Qwen3Size {
+impl std::fmt::Display for Qwen3 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let name = match self {
-            Qwen3Size::Size0_6B => "qwen3-0.6b",
-            Qwen3Size::Size1_7B => "qwen3-1.7b",
-            Qwen3Size::Size4B => "qwen3-4b",
-            Qwen3Size::Size8B => "qwen3-8b",
-            Qwen3Size::Size14B => "qwen3-14b",
-            Qwen3Size::Size32B => "qwen3-32b",
+            Qwen3::Size0_6B => "qwen3-0.6b",
+            Qwen3::Size1_7B => "qwen3-1.7b",
+            Qwen3::Size4B => "qwen3-4b",
+            Qwen3::Size8B => "qwen3-8b",
+            Qwen3::Size14B => "qwen3-14b",
+            Qwen3::Size32B => "qwen3-32b",
         };
         write!(f, "{name}")
     }
 }
 
-impl crate::pipelines::cache::ModelOptions for Qwen3Size {
+impl crate::pipelines::cache::ModelOptions for Qwen3 {
     fn cache_key(&self) -> String {
         self.to_string()
     }
@@ -78,8 +81,8 @@ impl crate::pipelines::cache::ModelOptions for Qwen3Size {
 
 use crate::loaders::{GgufModelLoader, TokenizerLoader};
 
-/// Only for generic annotations. Use [`TextGenerationPipelineBuilder::qwen3`](crate::text_generation::TextGenerationPipelineBuilder::qwen3).
-pub struct Qwen3 {
+/// Internal Qwen3 model implementation.
+pub(crate) struct Qwen3Model {
     weights: Arc<candle_qwen3::ModelWeights>,
     info: ModelInfo,
     reasoning: std::sync::atomic::AtomicBool,
@@ -87,7 +90,7 @@ pub struct Qwen3 {
     chat_template_env: Arc<Environment<'static>>,
 }
 
-impl Clone for Qwen3 {
+impl Clone for Qwen3Model {
     fn clone(&self) -> Self {
         Self {
             weights: self.weights.clone(),
@@ -101,7 +104,7 @@ impl Clone for Qwen3 {
     }
 }
 
-impl Qwen3 {
+impl Qwen3Model {
     fn parse_chat_template(
         tokenizer_config_path: std::path::PathBuf,
     ) -> Result<Arc<Environment<'static>>> {
@@ -190,7 +193,7 @@ impl Qwen3 {
         })
     }
 
-    pub(crate) fn from_hf(device: &Device, size: Qwen3Size) -> Result<Self> {
+    pub(crate) fn from_hf(device: &Device, size: Qwen3) -> Result<Self> {
         let (repo_id, file_name) = size.to_id();
 
         let model_loader = GgufModelLoader::new(&repo_id, &file_name);
@@ -206,7 +209,7 @@ impl Qwen3 {
         Self::build_model(device, file, content, generation_config, chat_template_env)
     }
 
-    pub(crate) async fn from_hf_async(device: &Device, size: Qwen3Size) -> Result<Self> {
+    pub(crate) async fn from_hf_async(device: &Device, size: Qwen3) -> Result<Self> {
         let (repo_id, file_name) = size.to_id();
 
         let model_loader = GgufModelLoader::new(&repo_id, &file_name);
@@ -235,10 +238,9 @@ pub struct ModelInfo {
     pub _device: Device,
 }
 
-use crate::pipelines::text_generation::model::{
-    ModelCache, Reasoning, TextGenerationModel, ToggleableReasoning,
+use crate::models::capabilities::{
+    ModelCache, ModelConfig, Reasoning, TextGenerationModel, ToggleableReasoning, ToolCalling,
 };
-use crate::pipelines::text_generation::tools::ToolCalling;
 
 // Implement ModelCache for the external cache type
 impl ModelCache for candle_qwen3::Cache {
@@ -251,9 +253,17 @@ impl ModelCache for candle_qwen3::Cache {
     }
 }
 
-impl TextGenerationModel for Qwen3 {
+impl ModelConfig for Qwen3 {
+    type Model = Qwen3Model;
+
+    fn build(self, device: Device) -> Result<Self::Model> {
+        Qwen3Model::from_hf(&device, self)
+    }
+}
+
+impl TextGenerationModel for Qwen3Model {
     type Cache = candle_qwen3::Cache;
-    type Options = Qwen3Size;
+    type Options = Qwen3;
 
     fn get_eos_token(&self) -> Option<u32> {
         self.generation_config
@@ -276,15 +286,15 @@ impl TextGenerationModel for Qwen3 {
     }
 
     fn new(options: Self::Options, device: candle_core::Device) -> Result<Self> {
-        Qwen3::from_hf(&device, options)
+        Qwen3Model::from_hf(&device, options)
     }
 
     async fn new_async(options: Self::Options, device: candle_core::Device) -> Result<Self> {
-        Qwen3::from_hf_async(&device, options).await
+        Qwen3Model::from_hf_async(&device, options).await
     }
 
     fn get_tokenizer(&self) -> Result<tokenizers::Tokenizer> {
-        Qwen3::get_tokenizer(self)
+        Qwen3Model::get_tokenizer(self)
     }
 
     fn apply_chat_template(
@@ -355,29 +365,24 @@ impl TextGenerationModel for Qwen3 {
         self.weights.forward(input, cache)
     }
 
-    fn default_generation_params(
-        &self,
-    ) -> crate::pipelines::text_generation::params::GenerationParams {
-        crate::pipelines::text_generation::params::GenerationParams {
-            temperature: self.generation_config.temperature.unwrap_or(0.6),
-            repeat_penalty: self.generation_config.repeat_penalty.unwrap_or(1.1),
-            repeat_last_n: self.generation_config.repeat_last_n.unwrap_or(64),
-            seed: rand::random(),
-            max_len: 2048,
-            top_p: Some(self.generation_config.top_p.unwrap_or(0.95)),
-            top_k: Some(self.generation_config.top_k.unwrap_or(20) as usize),
-            min_p: Some(self.generation_config.min_p.unwrap_or(0.0)).filter(|v| *v > 0.0),
-        }
+    fn get_generation_config(&self) -> &crate::loaders::GenerationConfig {
+        &self.generation_config
     }
 }
 
-impl Reasoning for Qwen3 {}
+impl Reasoning for Qwen3Model {}
 
-impl ToggleableReasoning for Qwen3 {
+impl ToggleableReasoning for Qwen3Model {
     fn enable_reasoning(&self, enable: bool) {
         self.reasoning
             .store(enable, std::sync::atomic::Ordering::SeqCst);
     }
 }
 
-impl ToolCalling for Qwen3 {}
+impl ToolCalling for Qwen3Model {
+    type Parser = Qwen3Parser;
+
+    fn new_parser(&self) -> Self::Parser {
+        Qwen3Parser::new()
+    }
+}
